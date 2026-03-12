@@ -1,13 +1,15 @@
 import ImageCard from './ImageCard.jsx'
 
 const BADGE_STYLES = {
-  page_number:     'bg-[rgba(34,197,94,0.12)]  text-app-success border-app-success',
-  timestamp:       'bg-[rgba(59,130,246,0.12)] text-app-info    border-app-info',
-  text_continuity: 'bg-[rgba(245,158,11,0.12)] text-app-warning border-app-warning',
+  filename_order:  'bg-[rgba(168,85,247,0.12)] text-purple-400   border-purple-400',
+  page_number:     'bg-[rgba(34,197,94,0.12)]  text-app-success  border-app-success',
+  timestamp:       'bg-[rgba(59,130,246,0.12)] text-app-info     border-app-info',
+  text_continuity: 'bg-[rgba(245,158,11,0.12)] text-app-warning  border-app-warning',
   original_order:  'bg-app-card2               text-app-text-muted border-app-border',
 }
 
 const BADGE_ICONS = {
+  filename_order:  '🔢',
   page_number:     '📄',
   timestamp:       '🕐',
   text_continuity: '🔗',

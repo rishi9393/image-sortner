@@ -66,7 +66,7 @@ export default function App() {
 
     try {
       // ── Step 0: Upload ──────────────────────────────────
-      const uploadResult = await uploadImages(files)
+      const uploadData = await uploadImages(files)  // already unwrapped to data{}
 
       // ── Step 1: OCR (while process API runs) ───────────
       setPhase(1)
@@ -85,19 +85,19 @@ export default function App() {
       )
 
       // ── Process API ─────────────────────────────────────
-      const processResult = await processImages(uploadResult.sessionId)
+      const processData = await processImages(uploadData.sessionId)  // already unwrapped to data{}
 
       // Clear timers & mark all done
       timersRef.current.forEach(clearTimeout)
       timersRef.current = []
 
       setPhase(4)
-      setSessionId(uploadResult.sessionId)
-      setSortResults(processResult)
+      setSessionId(uploadData.sessionId)
+      setSortResults(processData)
 
       setTimeout(() => {
         setStep('results')
-        showToast(`✨ Sorted ${processResult.images.length} images successfully!`)
+        showToast(`✨ Sorted ${processData.images.length} images successfully!`)
       }, 500)
     } catch (err) {
       timersRef.current.forEach(clearTimeout)

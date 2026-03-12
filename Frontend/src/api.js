@@ -7,18 +7,20 @@ export async function uploadImages(files) {
   const res = await fetch(`${API_BASE}/upload`, { method: 'POST', body: formData })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
-    throw new Error(err.message || 'Upload failed. Please try again.')
+    throw new Error(err.error?.message || err.message || 'Upload failed. Please try again.')
   }
-  return res.json()
+  const json = await res.json()
+  return json.data  // unwrap the { success, data } envelope
 }
 
 export async function processImages(sessionId) {
   const res = await fetch(`${API_BASE}/process/${sessionId}`, { method: 'POST' })
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
-    throw new Error(err.message || 'Processing failed. Please try again.')
+    throw new Error(err.error?.message || err.message || 'Processing failed. Please try again.')
   }
-  return res.json()
+  const json = await res.json()
+  return json.data  // unwrap the { success, data } envelope
 }
 
 export function getExportUrl(sessionId) {

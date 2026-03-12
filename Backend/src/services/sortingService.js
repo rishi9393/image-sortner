@@ -1,64 +1,56 @@
 /**
- * Sorting Service
- * Combines all available signals to produce a best-guess page order.
+ * Sorting Service  –  v2
  *
- * Priority:
- *  1. Explicit page number (detectPageNumber confidence >= 0.7)  → HIGH
- *  2. EXIF / metadata timestamp                                  → MEDIUM
- *  3. Text continuity (NLP flow analysis)                        → MEDIUM-LOW
- *  4. Original upload order                                      → FALLBACK
+ * Sort priority (highest → lowest):
+ *
+ *  0. Filename sequential numbers  NEW  → instant, zero I/O
+ *  1. Explicit page number  (OCR, confidence ≥ 0.7)
+ *  2. EXIF / metadata timestamp
+ *  3. Text continuity  (NLP flow analysis)
+ *  4. Original upload order  (fallback)
  */
+
+"use strict";
 
 const logger = require("../utils/logger");
 const { sortByTextContinuity } = require("./textContinuityService");
 
-/**
- * @typedef {Object} ImageAnalysis
- * @property {string}  originalName
- * @property {string}  storedFilename
- * @property {string}  filePath
- * @property {string}  url
- * @property {number}  size
- * @property {Object}  metadata          - result from metadataService
- * @property {Object}  ocr               - { text, confidence }
- * @property {Object|null} pageDetection - result from pageDetectionService
- * @property {number}  originalIndex     - 0-based position in the upload batch
- */
+// ── Constants ─────────────────────────────────────────────────────────────────
 
-/**
- * @typedef {Object} SortResult
- * @property {ImageAnalysis[]} sortedImages
- * @property {'page_number'|'timestamp'|'original_order'} sortMethod
- * @property {string} sortMethodDescription
- */
-
-// Minimum page-detection confidence to treat a number as reliable
 const PAGE_NUMBER_CONFIDENCE_THRESHOLD = 0.7;
+const QUORUM_FRACTION                  = 0.5;
 
-// Minimum fraction of images that must have a signal for that signal to "win"
-const QUORUM_FRACTION = 0.5;
+// ── Public API ────────────────────────────────────────────────────────────────
 
 /**
  * Sort an array of analysed images into the most likely correct page order.
  *
- * @param {ImageAnalysis[]} analyses
- * @returns {SortResult}
+ * @param {import('./ocrService').ImageAnalysis[]} analyses
+ * @returns {{ sortedImages: any[], sortMethod: string, sortMethodDescription: string }}
  */
 function sortImages(analyses) {
   if (!analyses || analyses.length === 0) {
     return {
-      sortedImages: [],
-      sortMethod: "original_order",
-      sortMethodDescription: "No images to sort.",
+      sortedImages:           [],
+      sortMethod:             "original_order",
+      sortMethodDescription:  "No images to sort.",
     };
   }
 
   if (analyses.length === 1) {
     return {
-      sortedImages: analyses,
-      sortMethod: "original_order",
-      sortMethodDescription: "Only one image — nothing to sort.",
+      sortedImages:           analyses,
+      sortMethod:             "original_order",
+      sortMethodDescription:  "Only one image — nothing to sort.",
     };
+  }
+
+  // ── Signal 0: Filename sequential numbers ─────────────────────────────────
+  // Check this first — it requires zero I/O and is highly reliable when present.
+  const fnResult = _detectFilenameOrder(analyses);
+  if (fnResult) {
+    logger.info(`Sort method: filename_order`);
+    return fnResult;
   }
 
   // ── Signal 1: Page numbers ────────────────────────────────────────────────
@@ -70,17 +62,15 @@ function sortImages(analyses) {
 
   if (withPageNumbers.length / analyses.length >= QUORUM_FRACTION) {
     logger.info(
-      `Sort method: page_number (${withPageNumbers.length}/${analyses.length} images have page numbers)`
+      `Sort method: page_number (${withPageNumbers.length}/${analyses.length} images)`
     );
-    return sortByPageNumber(analyses, withPageNumbers);
+    return _sortByPageNumber(analyses, withPageNumbers);
   }
 
   // ── Signal 2: Timestamps ──────────────────────────────────────────────────
   const withTimestamps = analyses.filter(
     (img) => img.metadata && img.metadata.earliestDate instanceof Date
   );
-
-  // Only use timestamps if they are not all identical
   const uniqueTimestamps = new Set(
     withTimestamps.map((img) => img.metadata.earliestDate.getTime())
   );
@@ -90,20 +80,19 @@ function sortImages(analyses) {
     uniqueTimestamps.size > 1
   ) {
     logger.info(
-      `Sort method: timestamp (${withTimestamps.length}/${analyses.length} images have timestamps)`
+      `Sort method: timestamp (${withTimestamps.length}/${analyses.length} images)`
     );
-    return sortByTimestamp(analyses);
+    return _sortByTimestamp(analyses);
   }
 
   // ── Signal 3: Text continuity ─────────────────────────────────────────────
-  // Only attempt if images actually have OCR text to work with
   const withText = analyses.filter(
     (img) => img.ocr && img.ocr.text && img.ocr.text.trim().length > 20
   );
 
   if (withText.length / analyses.length >= QUORUM_FRACTION) {
     logger.info(
-      `Sort method: text_continuity (${withText.length}/${analyses.length} images have usable text)`
+      `Sort method: text_continuity (${withText.length}/${analyses.length} images)`
     );
     return sortByTextContinuity(analyses);
   }
@@ -112,42 +101,88 @@ function sortImages(analyses) {
   logger.info("Sort method: original_order (no reliable signals found)");
   return {
     sortedImages: [...analyses].sort((a, b) => a.originalIndex - b.originalIndex),
-    sortMethod: "original_order",
+    sortMethod:   "original_order",
     sortMethodDescription:
       "No reliable page numbers, timestamps, or text content were found. Images are shown in upload order.",
   };
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ── Signal 0: Filename order ──────────────────────────────────────────────────
 
 /**
- * Sort primarily by detected page number.
- * Images that don't have a recognised page number are appended at the end,
- * ordered by timestamp (if available) or original upload order.
+ * Detect whether filenames encode a reliable sequential page order.
+ *
+ * Rules
+ * ─────
+ *  • Every filename must contain at least one number.
+ *  • The last number found in each filename stem is used as the page index.
+ *  • Those numbers must form a gapless ascending sequence starting from 0 or 1
+ *    (e.g. 1,2,3,4 or 001,002,003 — NOT 1,3,5 or 10,20,30).
+ *  • All numbers must be unique (no duplicates).
+ *  • Sequence must start at ≤ 5 to guard against e.g. year numbers in filenames.
+ *
+ * Examples that match:
+ *   page1.jpg, page2.jpg, page3.jpg
+ *   img_001.png, img_003.png, img_002.png  →  sorted 001,002,003
+ *   scan-3.jpg, scan-1.jpg, scan-2.jpg     →  sorted 1,2,3
+ *
+ * @param {any[]} analyses
+ * @returns {{ sortedImages: any[], sortMethod: string, sortMethodDescription: string } | null}
  */
-function sortByPageNumber(analyses, withPageNumbers) {
+function _detectFilenameOrder(analyses) {
+  const numbered = analyses.map((img) => {
+    // Strip extension, then find ALL digit groups in the stem
+    const stem = (img.originalName || "").replace(/\.[^.]+$/, "");
+    const nums  = stem.match(/\d+/g);
+    if (!nums) return null;
+    // Use the LAST number in the name (most likely to be the page index)
+    return { img, num: parseInt(nums[nums.length - 1], 10) };
+  });
+
+  // Every file must have a number
+  if (numbered.some((n) => n === null)) return null;
+
+  const sorted    = [...numbered].sort((a, b) => a.num - b.num);
+  const nums      = sorted.map((n) => n.num);
+  const uniqueSet = new Set(nums);
+
+  // Reject duplicates
+  if (uniqueSet.size !== nums.length) return null;
+
+  const min = nums[0];
+  const max = nums[nums.length - 1];
+
+  // Reject sequences that start far from 0/1 (e.g. years like 2024)
+  if (min > 5) return null;
+
+  // Reject sequences with gaps (1,2,4,5 — gap at 3)
+  if (max - min + 1 !== nums.length) return null;
+
+  return {
+    sortedImages:          sorted.map((n) => n.img),
+    sortMethod:            "filename_order",
+    sortMethodDescription: `Sorted by sequential numbers found in filenames (${min}–${max}).`,
+  };
+}
+
+// ── Signal 1: Page-number sort ────────────────────────────────────────────────
+
+function _sortByPageNumber(analyses, withPageNumbers) {
   const withoutPageNumbers = analyses.filter(
     (img) =>
       !img.pageDetection ||
       img.pageDetection.confidence < PAGE_NUMBER_CONFIDENCE_THRESHOLD
   );
 
-  // Sort images that have page numbers
   const sorted = [...withPageNumbers].sort((a, b) => {
     const diff = a.pageDetection.pageNumber - b.pageDetection.pageNumber;
-    if (diff !== 0) return diff;
-    // tie-break: timestamp
-    return timestampOf(a) - timestampOf(b);
+    return diff !== 0 ? diff : _timestampOf(a) - _timestampOf(b);
   });
 
-  // Sort the remainder by timestamp / original order and append
   const remainder = [...withoutPageNumbers].sort((a, b) => {
-    const tDiff = timestampOf(a) - timestampOf(b);
-    if (tDiff !== 0) return tDiff;
-    return a.originalIndex - b.originalIndex;
+    const tDiff = _timestampOf(a) - _timestampOf(b);
+    return tDiff !== 0 ? tDiff : a.originalIndex - b.originalIndex;
   });
-
-  const sortedImages = [...sorted, ...remainder];
 
   const pagesDetected = withPageNumbers
     .map((img) => img.pageDetection.pageNumber)
@@ -155,22 +190,19 @@ function sortByPageNumber(analyses, withPageNumbers) {
     .join(", ");
 
   return {
-    sortedImages,
-    sortMethod: "page_number",
-    sortMethodDescription: `Sorted by detected page numbers (${withPageNumbers.length} found: ${pagesDetected}).${
-      withoutPageNumbers.length > 0
+    sortedImages: [...sorted, ...remainder],
+    sortMethod:   "page_number",
+    sortMethodDescription:
+      `Sorted by detected page numbers (${withPageNumbers.length} found: ${pagesDetected}).` +
+      (withoutPageNumbers.length > 0
         ? ` ${withoutPageNumbers.length} image(s) without a page number were appended at the end.`
-        : ""
-    }`,
+        : ""),
   };
 }
 
-/**
- * Sort all images by their EXIF/metadata timestamp.
- * Images without timestamps retain their relative upload order and are
- * placed after the timestamped ones.
- */
-function sortByTimestamp(analyses) {
+// ── Signal 2: Timestamp sort ──────────────────────────────────────────────────
+
+function _sortByTimestamp(analyses) {
   const withTs = analyses
     .filter((img) => img.metadata && img.metadata.earliestDate instanceof Date)
     .sort((a, b) => {
@@ -180,24 +212,25 @@ function sortByTimestamp(analyses) {
     });
 
   const withoutTs = analyses
-    .filter((img) => !img.metadata || !(img.metadata.earliestDate instanceof Date))
+    .filter(
+      (img) => !img.metadata || !(img.metadata.earliestDate instanceof Date)
+    )
     .sort((a, b) => a.originalIndex - b.originalIndex);
 
   return {
     sortedImages: [...withTs, ...withoutTs],
-    sortMethod: "timestamp",
-    sortMethodDescription: `Sorted by image capture timestamp (${withTs.length} images had EXIF timestamps).${
-      withoutTs.length > 0
+    sortMethod:   "timestamp",
+    sortMethodDescription:
+      `Sorted by image capture timestamp (${withTs.length} images had EXIF timestamps).` +
+      (withoutTs.length > 0
         ? ` ${withoutTs.length} image(s) without timestamps were appended at the end.`
-        : ""
-    }`,
+        : ""),
   };
 }
 
-/**
- * Return a comparable timestamp value for an image (or Infinity if none).
- */
-function timestampOf(img) {
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function _timestampOf(img) {
   return img.metadata && img.metadata.earliestDate instanceof Date
     ? img.metadata.earliestDate.getTime()
     : Infinity;
