@@ -4,7 +4,6 @@ import Footer from './components/Footer.jsx'
 import UploadSection from './components/UploadSection.jsx'
 import ProcessingSection from './components/ProcessingSection.jsx'
 import ResultsSection from './components/ResultsSection.jsx'
-import Lightbox from './components/Lightbox.jsx'
 import Toast from './components/Toast.jsx'
 import { uploadImages, processImagesWithProgress, getExportUrl } from './api.js'
 
@@ -25,7 +24,6 @@ export default function App() {
   const [ocrProgress, setOcrProgress] = useState({ done: 0, total: 0 })
   const [error, setError]             = useState(null)
   const [toast, setToast]             = useState(null)
-  const [lightbox, setLightbox]       = useState({ open: false, index: 0 })
   const phaseTimerRef = useRef(null)
 
   /* ── Toast ─────────────────────────────────────────────── */
@@ -119,17 +117,6 @@ export default function App() {
     setOcrProgress({ done: 0, total: 0 })
   }, [])
 
-  /* ── Lightbox ───────────────────────────────────────────── */
-  const handleOpenLightbox  = useCallback((index) => setLightbox({ open: true, index }), [])
-  const handleCloseLightbox = useCallback(() => setLightbox((p) => ({ ...p, open: false })), [])
-  const handleLightboxNav   = useCallback((dir) => {
-    if (!sortResults) return
-    setLightbox((p) => ({
-      ...p,
-      index: (p.index + dir + sortResults.images.length) % sortResults.images.length,
-    }))
-  }, [sortResults])
-
   /* ── Render ─────────────────────────────────────────────── */
   return (
     <div className="min-h-screen bg-app-bg text-app-text font-sans flex flex-col">
@@ -160,22 +147,11 @@ export default function App() {
             sortResults={sortResults}
             onDownloadPDF={handleDownloadPDF}
             onSortAgain={handleSortAgain}
-            onOpenLightbox={handleOpenLightbox}
           />
         )}
       </main>
 
       <Footer />
-
-      {lightbox.open && sortResults && (
-        <Lightbox
-          images={sortResults.images}
-          currentIndex={lightbox.index}
-          onClose={handleCloseLightbox}
-          onPrev={() => handleLightboxNav(-1)}
-          onNext={() => handleLightboxNav(1)}
-        />
-      )}
 
       {toast && <Toast message={toast} />}
     </div>
