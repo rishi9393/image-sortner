@@ -31,21 +31,26 @@ app.use(express.urlencoded({ extended: true }));
 // Serve uploaded files statically (for preview)
 app.use("/uploads", express.static(path.join(config.paths.uploads)));
 
+// Serve React build (production) — built output lives in Frontend/dist/
+app.use(express.static(path.join(__dirname, "../../Frontend/dist")));
+
 // ---------------------
 // API Routes
 // ---------------------
 
-// Root endpoint
-app.get("/", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "Welcome to Smart Notes Image Sorter API",
-    docs: "Use /api/health to check server status",
-  });
-});
-
 // All API routes mounted under /api
 app.use("/api", routes);
+
+// ---------------------
+// SPA Catch-all (serves React index.html for any non-API route)
+// Express 5 requires named wildcard syntax: /{*splat}
+// ---------------------
+app.get("/{*splat}", (req, res, next) => {
+  const indexPath = path.join(__dirname, "../../Frontend/dist/index.html");
+  res.sendFile(indexPath, (err) => {
+    if (err) next(); // fallback to 404 handler if no build exists
+  });
+});
 
 // ---------------------
 // Error Handling

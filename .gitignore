@@ -1,7 +1,25 @@
+# Dependencies
 node_modules/
-uploads/raw/*
-uploads/processed/*
-!uploads/raw/.gitkeep
-!uploads/processed/.gitkeep
+Backend/node_modules/
+Frontend/node_modules/
+
+# Upload storage (keep folder, ignore contents)
+Backend/uploads/raw/*
+Backend/uploads/processed/*
+!Backend/uploads/raw/.gitkeep
+!Backend/uploads/processed/.gitkeep
+
+# Environment variables
 .env
+Backend/.env
+
+# Frontend build output
+Frontend/dist/
+
+# Logs
 *.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db

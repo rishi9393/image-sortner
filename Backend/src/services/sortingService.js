@@ -1,15 +1,16 @@
 /**
  * Sorting Service
- * Combines all available signals (page numbers, EXIF timestamps, file
- * modification time) to produce a best-guess page order for a set of images.
+ * Combines all available signals to produce a best-guess page order.
  *
  * Priority:
  *  1. Explicit page number (detectPageNumber confidence >= 0.7)  → HIGH
  *  2. EXIF / metadata timestamp                                  → MEDIUM
- *  3. Original upload order                                      → FALLBACK
+ *  3. Text continuity (NLP flow analysis)                        → MEDIUM-LOW
+ *  4. Original upload order                                      → FALLBACK
  */
 
 const logger = require("../utils/logger");
+const { sortByTextContinuity } = require("./textContinuityService");
 
 /**
  * @typedef {Object} ImageAnalysis
@@ -94,13 +95,26 @@ function sortImages(analyses) {
     return sortByTimestamp(analyses);
   }
 
+  // ── Signal 3: Text continuity ─────────────────────────────────────────────
+  // Only attempt if images actually have OCR text to work with
+  const withText = analyses.filter(
+    (img) => img.ocr && img.ocr.text && img.ocr.text.trim().length > 20
+  );
+
+  if (withText.length / analyses.length >= QUORUM_FRACTION) {
+    logger.info(
+      `Sort method: text_continuity (${withText.length}/${analyses.length} images have usable text)`
+    );
+    return sortByTextContinuity(analyses);
+  }
+
   // ── Fallback: original upload order ──────────────────────────────────────
   logger.info("Sort method: original_order (no reliable signals found)");
   return {
     sortedImages: [...analyses].sort((a, b) => a.originalIndex - b.originalIndex),
     sortMethod: "original_order",
     sortMethodDescription:
-      "No reliable page numbers or timestamps were found. Images are shown in upload order.",
+      "No reliable page numbers, timestamps, or text content were found. Images are shown in upload order.",
   };
 }
 

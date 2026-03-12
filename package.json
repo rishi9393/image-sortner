@@ -1,35 +1,14 @@
 {
-  "name": "smart-notes-image-sorter",
+  "name": "smart-notes-sorter",
   "version": "1.0.0",
-  "description": "A web application that automatically sorts unordered note images into the correct page sequence",
-  "main": "src/server.js",
+  "description": "Smart Notes Image Sorter — root workspace scripts",
+  "private": true,
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "nodemon src/server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [
-    "image-sorter",
-    "ocr",
-    "notes",
-    "pdf"
-  ],
-  "author": "Rishi Chaudhari",
-  "license": "ISC",
-  "type": "commonjs",
-  "dependencies": {
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
-    "exifr": "^7.1.3",
-    "express": "^5.2.1",
-    "morgan": "^1.10.0",
-    "multer": "^2.1.1",
-    "pdfkit": "^0.17.2",
-    "sharp": "^0.34.5",
-    "tesseract.js": "^7.0.0",
-    "uuid": "^13.0.0"
-  },
-  "devDependencies": {
-    "nodemon": "^3.1.14"
+    "dev:backend":      "cd Backend  && npm run dev",
+    "dev:frontend":     "cd Frontend && npm run dev",
+    "build:frontend":   "cd Frontend && npm run build",
+    "install:backend":  "cd Backend  && npm install",
+    "install:frontend": "cd Frontend && npm install",
+    "install:all":      "npm run install:backend && npm run install:frontend"
   }
 }
