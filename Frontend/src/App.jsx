@@ -6,7 +6,7 @@ import ProcessingSection from './components/ProcessingSection.jsx'
 import ResultsSection from './components/ResultsSection.jsx'
 import Lightbox from './components/Lightbox.jsx'
 import Toast from './components/Toast.jsx'
-import { uploadImages, processImages, getExportUrl } from './api.js'
+import { uploadImages, processImagesWithProgress, getExportUrl } from './api.js'
 
 const PROCESSING_STEPS = [
   { id: 'upload', label: 'Uploading images' },
@@ -15,20 +15,18 @@ const PROCESSING_STEPS = [
   { id: 'sort',   label: 'Sorting into correct order' },
 ]
 
-// phase: 0=upload active, 1=ocr active, 2=detect active, 3=sort active, 4=all done
-// step with index < phase is 'done', index === phase is 'active', > phase is 'pending'
-
 export default function App() {
-  const [step, setStep]           = useState('upload')  // 'upload' | 'processing' | 'results'
-  const [files, setFiles]         = useState([])
-  const [sessionId, setSessionId] = useState(null)
+  const [step, setStep]               = useState('upload')
+  const [files, setFiles]             = useState([])
+  const [sessionId, setSessionId]     = useState(null)
   const [sortResults, setSortResults] = useState(null)
-  const [phase, setPhase]         = useState(0)
-  const [phaseLabel, setPhaseLabel] = useState('Uploading files…')
-  const [error, setError]         = useState(null)
-  const [toast, setToast]         = useState(null)
-  const [lightbox, setLightbox]   = useState({ open: false, index: 0 })
-  const timersRef = useRef([])
+  const [phase, setPhase]             = useState(0)
+  const [phaseLabel, setPhaseLabel]   = useState('Uploading files…')
+  const [ocrProgress, setOcrProgress] = useState({ done: 0, total: 0 })
+  const [error, setError]             = useState(null)
+  const [toast, setToast]             = useState(null)
+  const [lightbox, setLightbox]       = useState({ open: false, index: 0 })
+  const phaseTimerRef = useRef(null)
 
   /* ── Toast ─────────────────────────────────────────────── */
   const showToast = useCallback((message) => {
@@ -55,53 +53,46 @@ export default function App() {
   const handleSort = useCallback(async () => {
     if (files.length === 0) return
 
-    // clear previous timers
-    timersRef.current.forEach(clearTimeout)
-    timersRef.current = []
+    if (phaseTimerRef.current) clearTimeout(phaseTimerRef.current)
 
     setStep('processing')
     setPhase(0)
     setPhaseLabel('Uploading files…')
+    setOcrProgress({ done: 0, total: 0 })
     setError(null)
 
     try {
       // ── Step 0: Upload ──────────────────────────────────
-      const uploadData = await uploadImages(files)  // already unwrapped to data{}
+      const uploadData = await uploadImages(files)
 
-      // ── Step 1: OCR (while process API runs) ───────────
-      setPhase(1)
-      setPhaseLabel('Running OCR on each image…')
-
-      // Schedule fake step advances for user feedback
-      timersRef.current.push(
-        setTimeout(() => {
-          setPhase(2)
-          setPhaseLabel('Detecting page numbers & signals…')
-        }, 2500),
-        setTimeout(() => {
-          setPhase(3)
-          setPhaseLabel('Sorting into correct order…')
-        }, 5000),
+      // ── Steps 1-3: OCR + Detect + Sort via SSE ─────────
+      // Phase transitions and per-image progress are driven by real
+      // server events — no fake setTimeout needed.
+      const processData = await processImagesWithProgress(
+        uploadData.sessionId,
+        // onProgress: real per-image updates from the server
+        ({ done, total, filename }) => {
+          setOcrProgress({ done, total })
+          setPhase(1)
+        },
+        // onPhase: server tells us when to advance the step indicator
+        (newPhase, label) => {
+          setPhase(newPhase)
+          setPhaseLabel(label)
+        }
       )
-
-      // ── Process API ─────────────────────────────────────
-      const processData = await processImages(uploadData.sessionId)  // already unwrapped to data{}
-
-      // Clear timers & mark all done
-      timersRef.current.forEach(clearTimeout)
-      timersRef.current = []
 
       setPhase(4)
       setSessionId(uploadData.sessionId)
       setSortResults(processData)
 
-      setTimeout(() => {
+      phaseTimerRef.current = setTimeout(() => {
         setStep('results')
         showToast(`✨ Sorted ${processData.images.length} images successfully!`)
-      }, 500)
+      }, 400)
+
     } catch (err) {
-      timersRef.current.forEach(clearTimeout)
-      timersRef.current = []
+      if (phaseTimerRef.current) clearTimeout(phaseTimerRef.current)
       setStep('upload')
       setError(err.message || 'Something went wrong. Please try again.')
     }
@@ -125,6 +116,7 @@ export default function App() {
     setSortResults(null)
     setError(null)
     setPhase(0)
+    setOcrProgress({ done: 0, total: 0 })
   }, [])
 
   /* ── Lightbox ───────────────────────────────────────────── */
@@ -159,6 +151,7 @@ export default function App() {
             steps={PROCESSING_STEPS}
             phase={phase}
             phaseLabel={phaseLabel}
+            ocrProgress={ocrProgress}
           />
         )}
 

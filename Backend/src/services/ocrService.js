@@ -1,55 +1,67 @@
 /**
- * OCR Service  –  v2 (fast)
+ * OCR Service  –  v3 (fast + cached)
  *
- * Key optimisations vs v1:
+ * Improvements over v2:
  *
- *  1. WORKER POOL
- *     Instead of spinning up a fresh Tesseract WASM engine for every image
- *     (1-3 s overhead each), we create POOL_SIZE workers once at startup and
- *     reuse them.  Excess requests queue automatically and are served as soon
- *     as a worker becomes free.
+ *  1. DYNAMIC POOL SIZE
+ *     Pool size is derived from os.cpus().length instead of being hardcoded
+ *     at 3.  On a 4-core machine you get 3 workers; on an 8-core machine you
+ *     get 7.  Bounded to [2, 10] so we never OOM on exotic hardware.
  *
- *  2. SMART IMAGE PRE-PROCESSING  (via sharp)
- *     • Resize to ≤ MAX_OCR_WIDTH pixels wide   → far fewer pixels to scan
- *     • Extract top + bottom strips only         → page numbers live in
- *       headers / footers; the middle is usually irrelevant for page detection
- *     • Greyscale + normalise                    → better OCR accuracy on
- *       low-contrast / shadowed photos
+ *  2. PER-FILE OCR CACHE
+ *     Results are cached in an LRU Map keyed by  `<filePath>:<mtime>`.
+ *     Re-sorting the same session (or a session with identical files) is
+ *     instant — zero Tesseract calls.  Cache is bounded at MAX_CACHE_SIZE
+ *     entries (~few MB of text at most).
  *
- *  3. CONCURRENT BATCH
- *     extractTextBatch() fires all images at once; the pool queues any
- *     requests beyond POOL_SIZE so memory stays bounded.
+ *  3. FASTER IMAGE PRE-PROCESSING
+ *     The old pipeline did:
+ *       metadata → resize → metadata(resized) → extract×2 → composite   (6 ops)
+ *     The new pipeline calculates resized dimensions mathematically and
+ *     reads the original file only once per strip:
+ *       metadata → parallel(resize+extract top, resize+extract bottom) → composite  (4 ops)
+ *     Eliminates one full intermediate PNG buffer and one metadata round-trip.
+ *
+ *  4. PER-IMAGE TIMEOUT
+ *     Each OCR call is wrapped with a 30-second timeout.  A blurry or
+ *     corrupt image can no longer freeze the entire batch.
  */
 
 "use strict";
 
 const { createWorker } = require("tesseract.js");
-const sharp = require("sharp");
-const path = require("path");
+const sharp  = require("sharp");
+const fs     = require("fs");
+const os     = require("os");
+const path   = require("path");
 const logger = require("../utils/logger");
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
-const POOL_SIZE     = 3;    // concurrent Tesseract workers kept alive
-const MAX_OCR_WIDTH = 1200; // px — resize wider images before OCR
-const STRIP_RATIO   = 0.18; // fraction of image height used for top/bottom strips
-const MIN_STRIP_H   = 60;   // px — minimum strip height regardless of image size
+/** Number of Tesseract workers.  Scales with CPU cores; bounded [2, 10]. */
+const POOL_SIZE     = Math.max(2, Math.min(os.cpus().length - 1, 10));
+
+const MAX_OCR_WIDTH = 1200;   // px — resize wider images before OCR
+const STRIP_RATIO   = 0.18;   // fraction of image height used for top/bottom strips
+const MIN_STRIP_H   = 60;     // px — minimum strip height regardless of image size
+const OCR_TIMEOUT   = 30_000; // ms — per-image OCR timeout
+
+/** LRU cache: key → { text, confidence } */
+const MAX_CACHE_SIZE = 500;
+const _ocrCache = new Map();
 
 // ── Worker Pool ───────────────────────────────────────────────────────────────
 
 class WorkerPool {
   constructor() {
-    /** @type {Array<{ worker: import('tesseract.js').Worker, busy: boolean }>} */
     this.workers     = [];
-    /** @type {Array<(entry: { worker: any, busy: boolean }) => void>} */
     this.queue       = [];
     this.initialised = false;
   }
 
-  /** Create all workers in parallel. Call once at startup. */
   async init() {
     if (this.initialised) return;
-    logger.info(`OCR: initialising worker pool (${POOL_SIZE} workers)…`);
+    logger.info(`OCR: initialising worker pool (${POOL_SIZE} workers, ${os.cpus().length} CPU cores)…`);
 
     await Promise.all(
       Array.from({ length: POOL_SIZE }, () =>
@@ -62,12 +74,6 @@ class WorkerPool {
     logger.info("OCR: worker pool ready ✓");
   }
 
-  /**
-   * Acquire a free worker.
-   * If all workers are busy the caller is queued and will be unblocked
-   * the moment one is released.
-   * @returns {Promise<{ worker: any, busy: boolean }>}
-   */
   acquire() {
     const free = this.workers.find((w) => !w.busy);
     if (free) {
@@ -77,22 +83,15 @@ class WorkerPool {
     return new Promise((resolve) => this.queue.push(resolve));
   }
 
-  /**
-   * Release a worker back to the pool.
-   * If callers are queued the worker is handed directly to the next one
-   * (stays busy) so there is no gap between jobs.
-   * @param {{ worker: any, busy: boolean }} entry
-   */
   release(entry) {
     if (this.queue.length > 0) {
       const next = this.queue.shift();
-      next(entry); // busy flag stays true — handed straight to next waiter
+      next(entry);
     } else {
       entry.busy = false;
     }
   }
 
-  /** Terminate all workers (call on graceful shutdown). */
   async terminate() {
     await Promise.all(
       this.workers.map((e) => e.worker.terminate().catch(() => {}))
@@ -104,83 +103,103 @@ class WorkerPool {
   }
 }
 
-// Singleton — shared across all requests
 const pool = new WorkerPool();
 
+async function initPool()     { await pool.init(); }
+async function shutdownPool() { await pool.terminate(); }
+
+// ── OCR Cache helpers ─────────────────────────────────────────────────────────
+
 /**
- * Warm up the worker pool.  Must be called once at server startup before
- * the first request arrives so that the first upload doesn't pay the
- * initialisation cost.
+ * Build a cache key from the file path + mtime so that
+ * the same upload is never re-OCR'd within the same server session.
+ * Returns null if the file cannot be stat'd.
  */
-async function initPool() {
-  await pool.init();
+function _cacheKey(filePath) {
+  try {
+    const { mtimeMs } = fs.statSync(filePath);
+    return `${filePath}:${mtimeMs}`;
+  } catch {
+    return null;
+  }
 }
 
-/** Tear down all workers.  Call on SIGTERM / SIGINT. */
-async function shutdownPool() {
-  await pool.terminate();
+function _cacheGet(key) {
+  if (!key) return null;
+  const hit = _ocrCache.get(key);
+  if (!hit) return null;
+  // LRU: move to end
+  _ocrCache.delete(key);
+  _ocrCache.set(key, hit);
+  return hit;
+}
+
+function _cacheSet(key, value) {
+  if (!key) return;
+  if (_ocrCache.size >= MAX_CACHE_SIZE) {
+    // Evict oldest entry
+    _ocrCache.delete(_ocrCache.keys().next().value);
+  }
+  _ocrCache.set(key, value);
 }
 
 // ── Image Pre-processing ──────────────────────────────────────────────────────
 
 /**
- * Produce a small, OCR-optimised image buffer from a file path.
+ * Produce a small, OCR-optimised buffer from an image file.
  *
- * Algorithm
- * ─────────
- *  1. Resize to ≤ MAX_OCR_WIDTH (proportional, no upscaling)
- *  2. Extract the top STRIP_RATIO and bottom STRIP_RATIO strips
- *  3. Stack them on a white canvas with an 8-px gap
- *  4. Apply greyscale + normalise for contrast enhancement
+ * Algorithm (v3 — 4 sharp ops instead of 6)
+ * ──────────────────────────────────────────
+ *  1. Read original dimensions (1 metadata call)
+ *  2. Calculate target dimensions mathematically (no second buffer needed)
+ *  3. In parallel: resize+extract top strip  AND  resize+extract bottom strip
+ *  4. Stack them on a white canvas with greyscale + normalise
  *
- * The resulting image is tiny (typically < 60 KB) yet preserves every pixel
- * that could contain a page-number or header/footer.
- *
- * Falls back to the original file path if Sharp fails for any reason.
+ * Falls back to the raw file path if Sharp fails.
  *
  * @param {string} imagePath
  * @returns {Promise<Buffer | string>}
  */
 async function preprocessImage(imagePath) {
   try {
-    // ── 1. Read original dimensions ─────────────────────────────────────────
-    const origMeta = await sharp(imagePath).metadata();
-    if (!origMeta.width || !origMeta.height) return imagePath;
+    // ── 1. Original dimensions (single metadata call) ───────────────────────
+    const { width: origW, height: origH } = await sharp(imagePath).metadata();
+    if (!origW || !origH) return imagePath;
 
-    const targetWidth = Math.min(origMeta.width, MAX_OCR_WIDTH);
+    // ── 2. Calculate resized dimensions without an intermediate buffer ───────
+    const scale   = Math.min(1, MAX_OCR_WIDTH / origW);
+    const rW      = Math.round(origW * scale);
+    const rH      = Math.round(origH * scale);
+    const stripH  = Math.max(Math.floor(rH * STRIP_RATIO), MIN_STRIP_H);
 
-    // ── 2. Resize to working size (PNG to preserve quality) ─────────────────
-    const resizedBuf = await sharp(imagePath)
-      .resize({ width: targetWidth, withoutEnlargement: true })
-      .png()
-      .toBuffer();
-
-    const { width: rW, height: rH } = await sharp(resizedBuf).metadata();
-    const stripH = Math.max(Math.floor(rH * STRIP_RATIO), MIN_STRIP_H);
-
-    // ── 3. If image is too short for two strips, use the full resized image ──
+    // ── 3. Short image — just resize + greyscale the whole thing ────────────
     if (stripH * 2 >= rH) {
-      return await sharp(resizedBuf)
+      return await sharp(imagePath)
+        .resize({ width: rW, withoutEnlargement: true })
         .greyscale()
         .normalise()
         .png()
         .toBuffer();
     }
 
-    // ── 4. Extract top + bottom strips in parallel ───────────────────────────
+    // ── 4. Extract top + bottom strips in PARALLEL from the original file ───
+    //      No intermediate PNG buffer needed — sharp reads the source once per
+    //      pipeline and the OS page cache makes the second read ~free.
     const [topBuf, botBuf] = await Promise.all([
-      sharp(resizedBuf)
+      sharp(imagePath)
+        .resize({ width: rW, height: rH, fit: "fill" })
         .extract({ left: 0, top: 0, width: rW, height: stripH })
         .png()
         .toBuffer(),
-      sharp(resizedBuf)
+      sharp(imagePath)
+        .resize({ width: rW, height: rH, fit: "fill" })
         .extract({ left: 0, top: rH - stripH, width: rW, height: stripH })
         .png()
         .toBuffer(),
     ]);
 
-    // ── 5. Stack strips on a white canvas (top | 8px gap | bottom) ───────────
-    const combinedBuf = await sharp({
+    // ── 5. Composite strips onto a white canvas ──────────────────────────────
+    return await sharp({
       create: {
         width:      rW,
         height:     stripH * 2 + 8,
@@ -189,53 +208,70 @@ async function preprocessImage(imagePath) {
       },
     })
       .composite([
-        { input: topBuf, top: 0,            left: 0 },
-        { input: botBuf, top: stripH + 8,   left: 0 },
+        { input: topBuf, top: 0,          left: 0 },
+        { input: botBuf, top: stripH + 8, left: 0 },
       ])
       .greyscale()
       .normalise()
       .png()
       .toBuffer();
 
-    return combinedBuf;
   } catch (err) {
     logger.warn(
       `OCR preprocess failed for ${path.basename(imagePath)}: ${err.message} — using original`
     );
-    return imagePath; // graceful fallback
+    return imagePath;
   }
 }
 
 // ── OCR ───────────────────────────────────────────────────────────────────────
 
 /**
- * Run OCR on a single image using a pooled worker.
+ * Run OCR on a single image.
+ *  • Checks the LRU cache first — zero Tesseract work if already seen.
+ *  • Wraps the Tesseract call with a 30-second timeout to prevent hangs.
+ *  • Uses the worker pool for concurrency control.
  *
- * @param {string} imagePath  Absolute path to the image file
+ * @param {string} imagePath
  * @returns {Promise<{ text: string, confidence: number }>}
  */
 async function extractText(imagePath) {
-  // Safety net: if pool is not ready (e.g. tests) fall back to a one-off worker
+  // ── 1. Cache hit? ─────────────────────────────────────────────────────────
+  const key    = _cacheKey(imagePath);
+  const cached = _cacheGet(key);
+  if (cached) {
+    logger.debug(`OCR cache hit: ${path.basename(imagePath)}`);
+    return cached;
+  }
+
+  // ── 2. Pool not ready? fall back to a one-off worker ─────────────────────
   if (!pool.initialised) {
     logger.warn("OCR: pool not initialised — using fallback single worker");
     return _extractTextDirect(imagePath);
   }
 
+  // ── 3. Acquire a pooled worker ────────────────────────────────────────────
   const entry = await pool.acquire();
   try {
     const input = await preprocessImage(imagePath);
-    const {
-      data: { text, confidence },
-    } = await entry.worker.recognize(input);
 
-    return {
+    // Wrap Tesseract in a timeout promise
+    const ocrPromise = entry.worker.recognize(input);
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("OCR timed out after 30 s")), OCR_TIMEOUT)
+    );
+
+    const { data: { text, confidence } } = await Promise.race([ocrPromise, timeoutPromise]);
+    const result = {
       text:       text ? text.trim() : "",
       confidence: typeof confidence === "number" ? confidence : 0,
     };
+
+    _cacheSet(key, result);
+    return result;
+
   } catch (err) {
-    logger.warn(
-      `OCR failed for ${path.basename(imagePath)}: ${err.message}`
-    );
+    logger.warn(`OCR failed for ${path.basename(imagePath)}: ${err.message}`);
     return { text: "", confidence: 0 };
   } finally {
     pool.release(entry);
@@ -244,26 +280,33 @@ async function extractText(imagePath) {
 
 /**
  * Run OCR on many images concurrently.
- * All requests are fired at once; the pool queues any beyond POOL_SIZE
- * so memory stays bounded.
+ * Optionally accepts an `onProgress` callback fired after each image
+ * completes — used by the SSE streaming endpoint.
  *
  * @param {string[]} imagePaths
+ * @param {((done: number, total: number, filename: string) => void) | null} onProgress
  * @returns {Promise<Array<{ text: string, confidence: number }>>}
  */
-async function extractTextBatch(imagePaths) {
-  return Promise.all(imagePaths.map((p) => extractText(p)));
+async function extractTextBatch(imagePaths, onProgress = null) {
+  let done = 0;
+  return Promise.all(
+    imagePaths.map((p) =>
+      extractText(p).then((result) => {
+        done++;
+        if (onProgress) onProgress(done, imagePaths.length, path.basename(p));
+        return result;
+      })
+    )
+  );
 }
 
 // ── Fallback (no pool) ────────────────────────────────────────────────────────
 
-/** One-off worker, used only when the pool is unavailable. */
 async function _extractTextDirect(imagePath) {
   let worker;
   try {
     worker = await createWorker("eng", 1, { logger: () => {} });
-    const {
-      data: { text, confidence },
-    } = await worker.recognize(imagePath);
+    const { data: { text, confidence } } = await worker.recognize(imagePath);
     return {
       text:       text ? text.trim() : "",
       confidence: typeof confidence === "number" ? confidence : 0,
@@ -276,4 +319,9 @@ async function _extractTextDirect(imagePath) {
   }
 }
 
-module.exports = { initPool, shutdownPool, extractText, extractTextBatch };
+/** Return current cache statistics (for health/debug endpoints). */
+function getCacheStats() {
+  return { size: _ocrCache.size, max: MAX_CACHE_SIZE };
+}
+
+module.exports = { initPool, shutdownPool, extractText, extractTextBatch, getCacheStats };
