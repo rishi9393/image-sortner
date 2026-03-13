@@ -1,20 +1,48 @@
-export default function Header() {
+export default function Header({ onLogoClick }) {
   return (
-    <header className="bg-app-card border-b border-app-border sticky top-0 z-50 backdrop-blur-sm">
-      <div className="max-w-4xl mx-auto px-6 h-14 flex items-center justify-between">
+    <header className="bg-white border-b border-app-border sticky top-0 z-50">
+      <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
 
-        {/* ── Brand — left side ─────────────────────────────── */}
-        <div className="flex items-center gap-2.5">
-          <span className="text-xl leading-none">📚</span>
-          <span className="text-lg font-bold bg-gradient-to-r from-[#6c63ff] to-[#a78bfa] bg-clip-text text-transparent whitespace-nowrap">
-            Smart Notes Sorter
-          </span>
+        {/* Brand */}
+        <button
+          onClick={onLogoClick}
+          className="flex items-center gap-2.5 cursor-pointer group"
+        >
+          <div className="w-8 h-8 bg-app-accent rounded-lg flex items-center justify-center shadow-blue group-hover:bg-app-accent-h transition-colors">
+            <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M9 4.804A7.968 7.968 0 005.5 4c-1.255 0-2.443.29-3.5.804v10A7.969 7.969 0 015.5 14c1.669 0 3.218.51 4.5 1.385A7.962 7.962 0 0114.5 14c1.255 0 2.443.29 3.5.804v-10A7.968 7.968 0 0014.5 4c-1.255 0-2.443.29-3.5.804V12a1 1 0 11-2 0V4.804z" />
+            </svg>
+          </div>
+          <div className="text-left">
+            <p className="text-sm font-bold text-app-text leading-none">Smart Notes</p>
+            <p className="text-[10px] text-app-text-muted leading-none mt-0.5 uppercase tracking-wide">Image Sorter</p>
+          </div>
+        </button>
+
+        {/* Nav links */}
+        <nav className="hidden md:flex items-center gap-6">
+          <span className="text-sm font-semibold text-app-accent border-b-2 border-app-accent pb-0.5 cursor-pointer">Upload</span>
+          <span className="text-sm text-app-text-sec hover:text-app-text transition-colors cursor-pointer">My Notes</span>
+          <span className="text-sm text-app-text-sec hover:text-app-text transition-colors cursor-pointer">Collections</span>
+        </nav>
+
+        {/* Right icons */}
+        <div className="flex items-center gap-2">
+          <button className="w-9 h-9 rounded-full border border-app-border bg-app-bg flex items-center justify-center hover:bg-app-border transition-colors cursor-pointer">
+            <svg className="w-4 h-4 text-app-text-sec" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </button>
+          <button className="w-9 h-9 rounded-full border border-app-border bg-app-bg flex items-center justify-center hover:bg-app-border transition-colors cursor-pointer">
+            <svg className="w-4 h-4 text-app-text-sec" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </button>
+          <div className="w-9 h-9 rounded-full bg-app-accent flex items-center justify-center text-white text-xs font-bold shadow-blue cursor-pointer">
+            JD
+          </div>
         </div>
-
-        {/* ── Tagline — right side (hidden on small screens) ── */}
-        <p className="hidden sm:block text-app-text-muted text-xs">
-          Upload shuffled notes → get them sorted automatically
-        </p>
 
       </div>
     </header>

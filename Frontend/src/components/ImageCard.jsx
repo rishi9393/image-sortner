@@ -11,42 +11,38 @@ export default function ImageCard({ image, sortedIndex, onClick, onRemove }) {
       tabIndex={0}
       onClick={onClick}
       onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onClick()}
-      className="bg-app-card border border-app-border rounded-xl overflow-hidden cursor-pointer
-                 relative transition-all duration-200 outline-none select-none group
-                 hover:-translate-y-1 hover:border-app-accent hover:shadow-[0_8px_32px_rgba(108,99,255,0.2)]
-                 focus:border-app-accent"
+      className="bg-white border border-app-border rounded-2xl overflow-hidden cursor-pointer
+                 relative transition-all duration-200 outline-none select-none group shadow-card
+                 hover:-translate-y-1 hover:border-app-accent hover:shadow-card-lg
+                 focus:border-app-accent focus:ring-2 focus:ring-app-accent/20"
     >
-      {/* ── Page-number badge (top-left) ─────────────────── */}
+      {/* ── PAGE badge (top-left, matching Figma notes.png) ── */}
       <span
-        className="absolute top-2.5 left-2.5 z-10 w-7 h-7 rounded-full flex items-center justify-center
-                   bg-app-accent text-white text-xs font-bold shadow-[0_2px_8px_rgba(0,0,0,0.4)]"
+        className="absolute top-2.5 left-2.5 z-10 px-2 py-0.5 rounded-md flex items-center
+                   bg-app-accent text-white text-[10px] font-bold tracking-wide shadow-blue"
       >
-        {sortedIndex}
+        PAGE {sortedIndex}
       </span>
 
-      {/* ── Remove button (top-right) ─────────────────────── */}
+      {/* ── Remove button (top-right) ──────────────────────── */}
       <button
         type="button"
         aria-label={`Remove image ${originalName}`}
-        onClick={(e) => {
-          e.stopPropagation()   // don't open the lightbox
-          onRemove()
-        }}
+        onClick={(e) => { e.stopPropagation(); onRemove() }}
         className="absolute top-2 right-2 z-20
                    w-6 h-6 rounded-full flex items-center justify-center
-                   bg-black/50 text-white/80
+                   bg-white/80 text-app-text-muted border border-app-border
                    opacity-0 group-hover:opacity-100
-                   hover:!opacity-100 hover:bg-red-500 hover:text-white hover:scale-110
-                   transition-all duration-150 cursor-pointer"
+                   hover:!opacity-100 hover:bg-app-error hover:text-white hover:border-app-error hover:scale-110
+                   transition-all duration-150 cursor-pointer shadow-card"
       >
-        {/* ✕ icon */}
         <svg xmlns="http://www.w3.org/2000/svg" className="w-3 h-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
           <line x1="2" y1="2" x2="10" y2="10" />
           <line x1="10" y1="2" x2="2"  y2="10" />
         </svg>
       </button>
 
-      {/* ── Thumbnail ────────────────────────────────────── */}
+      {/* ── Thumbnail ──────────────────────────────────────── */}
       <img
         src={url}
         alt={`Page ${sortedIndex}`}
@@ -54,34 +50,46 @@ export default function ImageCard({ image, sortedIndex, onClick, onRemove }) {
         loading="lazy"
       />
 
-      {/* ── Signal pills ─────────────────────────────────── */}
+      {/* ── Signal pills ───────────────────────────────────── */}
       {(hasPage || hasTs || hasCont) && (
         <div className="flex gap-1 flex-wrap px-3 pt-2">
           {hasPage && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium
-                             bg-[rgba(34,197,94,0.12)] text-app-success">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold
+                             bg-app-success-bg text-app-success border border-green-200">
               📄 pg {signals.pageNumber.value}
             </span>
           )}
           {hasTs && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium
-                             bg-[rgba(59,130,246,0.12)] text-app-info">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold
+                             bg-app-info-bg text-app-info border border-blue-200">
               🕐 ts
             </span>
           )}
           {hasCont && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium
-                             bg-[rgba(245,158,11,0.12)] text-app-warning">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold
+                             bg-app-warning-bg text-app-warning border border-yellow-200">
               🔗 flow
             </span>
           )}
         </div>
       )}
 
-      {/* ── Footer ───────────────────────────────────────── */}
-      <div className="px-3 py-2.5">
-        <p className="text-sm font-semibold text-app-text mb-0.5">Page {sortedIndex}</p>
-        <p className="text-[11px] text-app-text-muted truncate">{originalName}</p>
+      {/* ── Footer ─────────────────────────────────────────── */}
+      <div className="px-3 py-2.5 flex items-center justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-bold text-app-text mb-0.5 truncate">{originalName}</p>
+        </div>
+        {/* Drag handle dots */}
+        <button
+          onClick={(e) => e.stopPropagation()}
+          className="ml-2 flex-shrink-0 p-1 rounded hover:bg-app-bg transition-colors cursor-grab"
+        >
+          <svg className="w-3 h-3 text-app-text-muted" fill="currentColor" viewBox="0 0 12 12">
+            <circle cx="4" cy="3" r="1"/><circle cx="8" cy="3" r="1"/>
+            <circle cx="4" cy="6" r="1"/><circle cx="8" cy="6" r="1"/>
+            <circle cx="4" cy="9" r="1"/><circle cx="8" cy="9" r="1"/>
+          </svg>
+        </button>
       </div>
     </div>
   )

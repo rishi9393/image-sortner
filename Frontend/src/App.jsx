@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
+import LandingPage from './components/LandingPage.jsx'
 import Header from './components/Header.jsx'
 import Footer from './components/Footer.jsx'
 import UploadSection from './components/UploadSection.jsx'
@@ -15,7 +16,7 @@ const PROCESSING_STEPS = [
 ]
 
 export default function App() {
-  const [step, setStep]               = useState('upload')
+  const [step, setStep]               = useState('landing')  // 'landing' | 'upload' | 'processing' | 'results'
   const [files, setFiles]             = useState([])
   const [sessionId, setSessionId]     = useState(null)
   const [sortResults, setSortResults] = useState(null)
@@ -47,6 +48,11 @@ export default function App() {
     setError(null)
   }, [])
 
+  /* ── Get Started (landing → upload) ────────────────────── */
+  const handleGetStarted = useCallback(() => {
+    setStep('upload')
+  }, [])
+
   /* ── Sort ───────────────────────────────────────────────── */
   const handleSort = useCallback(async () => {
     if (files.length === 0) return
@@ -60,20 +66,14 @@ export default function App() {
     setError(null)
 
     try {
-      // ── Step 0: Upload ──────────────────────────────────
       const uploadData = await uploadImages(files)
 
-      // ── Steps 1-3: OCR + Detect + Sort via SSE ─────────
-      // Phase transitions and per-image progress are driven by real
-      // server events — no fake setTimeout needed.
       const processData = await processImagesWithProgress(
         uploadData.sessionId,
-        // onProgress: real per-image updates from the server
-        ({ done, total, filename }) => {
+        ({ done, total }) => {
           setOcrProgress({ done, total })
           setPhase(1)
         },
-        // onPhase: server tells us when to advance the step indicator
         (newPhase, label) => {
           setPhase(newPhase)
           setPhaseLabel(label)
@@ -86,7 +86,7 @@ export default function App() {
 
       phaseTimerRef.current = setTimeout(() => {
         setStep('results')
-        showToast(`✨ Sorted ${processData.images.length} images successfully!`)
+        showToast(`✅ Sorted ${processData.images.length} images successfully!`)
       }, 400)
 
     } catch (err) {
@@ -118,11 +118,23 @@ export default function App() {
   }, [])
 
   /* ── Render ─────────────────────────────────────────────── */
+
+  // Landing page is a standalone full-page (own nav + footer)
+  if (step === 'landing') {
+    return (
+      <>
+        <LandingPage onGetStarted={handleGetStarted} />
+        {toast && <Toast message={toast} />}
+      </>
+    )
+  }
+
+  // App shell (upload / processing / results)
   return (
     <div className="min-h-screen bg-app-bg text-app-text font-sans flex flex-col">
-      <Header />
+      <Header onLogoClick={() => setStep('landing')} />
 
-      <main className="flex-1 max-w-4xl w-full mx-auto px-6 py-10">
+      <main className="flex-1 max-w-6xl w-full mx-auto px-6 py-8">
         {step === 'upload' && (
           <UploadSection
             files={files}
