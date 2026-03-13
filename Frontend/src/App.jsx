@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react'
 import LandingPage from './components/LandingPage.jsx'
+import MyNotesPage from './components/MyNotesPage.jsx'
 import Header from './components/Header.jsx'
 import Footer from './components/Footer.jsx'
 import UploadSection from './components/UploadSection.jsx'
@@ -16,7 +17,7 @@ const PROCESSING_STEPS = [
 ]
 
 export default function App() {
-  const [step, setStep]               = useState('landing')  // 'landing' | 'upload' | 'processing' | 'results'
+  const [step, setStep]               = useState('landing')  // 'landing' | 'upload' | 'processing' | 'results' | 'notes'
   const [files, setFiles]             = useState([])
   const [sessionId, setSessionId]     = useState(null)
   const [sortResults, setSortResults] = useState(null)
@@ -129,10 +130,27 @@ export default function App() {
     )
   }
 
+  // My Notes page — own sidebar layout
+  if (step === 'notes') {
+    return (
+      <>
+        <MyNotesPage
+          onGoHome={() => setStep('landing')}
+          onGoToUpload={() => setStep('upload')}
+        />
+        {toast && <Toast message={toast} />}
+      </>
+    )
+  }
+
   // App shell (upload / processing / results)
   return (
     <div className="min-h-screen bg-app-bg text-app-text font-sans flex flex-col">
-      <Header onLogoClick={() => setStep('landing')} />
+      <Header
+          onLogoClick={() => setStep('landing')}
+          onNavigate={(key) => setStep(key)}
+          activeStep={step}
+        />
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-6 py-8">
         {step === 'upload' && (

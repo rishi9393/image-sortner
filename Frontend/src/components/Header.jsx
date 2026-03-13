@@ -1,4 +1,9 @@
-export default function Header({ onLogoClick }) {
+export default function Header({ onLogoClick, onNavigate, activeStep }) {
+  const navItems = [
+    { key: 'upload', label: 'Upload' },
+    { key: 'notes',  label: 'My Notes' },
+  ]
+
   return (
     <header className="bg-white border-b border-app-border sticky top-0 z-50">
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
@@ -20,10 +25,25 @@ export default function Header({ onLogoClick }) {
         </button>
 
         {/* Nav links */}
-        <nav className="hidden md:flex items-center gap-6">
-          <span className="text-sm font-semibold text-app-accent border-b-2 border-app-accent pb-0.5 cursor-pointer">Upload</span>
-          <span className="text-sm text-app-text-sec hover:text-app-text transition-colors cursor-pointer">My Notes</span>
-          <span className="text-sm text-app-text-sec hover:text-app-text transition-colors cursor-pointer">Collections</span>
+        <nav className="hidden md:flex items-center gap-1">
+          {navItems.map(({ key, label }) => {
+            const isActive = activeStep === key
+            return (
+              <button
+                key={key}
+                onClick={() => onNavigate?.(key)}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors cursor-pointer
+                  ${isActive
+                    ? 'bg-app-accent-light text-app-accent'
+                    : 'text-app-text-sec hover:text-app-text hover:bg-app-bg'}`}
+              >
+                {label}
+              </button>
+            )
+          })}
+          <button className="px-4 py-2 rounded-lg text-sm font-semibold text-app-text-sec hover:text-app-text hover:bg-app-bg transition-colors cursor-pointer">
+            Collections
+          </button>
         </nav>
 
         {/* Right icons */}
