@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 
 /* ── Mock collections ──────────────────────────────────────────────────────── */
 const INIT_COLLECTIONS = [
@@ -34,6 +34,18 @@ const INIT_COLLECTIONS = [
   },
 ]
 
+/* ── Preset cover photos (for the modal picker) ────────────────────────────── */
+const PRESET_COVERS = [
+  { id: 'p1', url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=600&q=80', label: 'Portrait'    },
+  { id: 'p2', url: 'https://images.unsplash.com/photo-1500462918059-b1a0cb512f1d?w=600&q=80', label: 'Abstract'   },
+  { id: 'p3', url: 'https://images.unsplash.com/photo-1462275646964-a0e3386b89fa?w=600&q=80', label: 'Minimal'    },
+  { id: 'p4', url: 'https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=600&q=80', label: 'Office'     },
+  { id: 'p5', url: 'https://images.unsplash.com/photo-1483546416237-76fd26bbcdd1?w=600&q=80', label: 'Tech'       },
+  { id: 'p6', url: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&q=80', label: 'Workspace'  },
+  { id: 'p7', url: 'https://images.unsplash.com/photo-1477346611705-65d1883cee1e?w=600&q=80', label: 'Nature'    },
+  { id: 'p8', url: 'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=600&q=80', label: 'Study'     },
+]
+
 /* ── Sidebar icons ─────────────────────────────────────────────────────────── */
 const MyNotesIcon   = () => <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
 const CollectIcon   = ({ active }) => <svg className="w-[18px] h-[18px]" fill={active ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" /></svg>
@@ -42,38 +54,181 @@ const TrashIcon     = () => <svg className="w-[18px] h-[18px]" fill="none" strok
 const SettingsIcon  = () => <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
 const ClockIcon     = () => <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
 
-/* ── Create / Edit Collection Modal ────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════════════
+   CREATE / EDIT COLLECTION MODAL
+   ══════════════════════════════════════════════════════════════════════════════ */
 function CollectionModal({ existing, onSave, onClose }) {
-  const [name,  setName]  = useState(existing?.name  || '')
-  const [color, setColor] = useState(existing?.color || '#2563eb')
+  const [name,       setName]      = useState(existing?.name  || '')
+  const [color,      setColor]     = useState(existing?.color || '#2563eb')
+  const [img,        setImg]       = useState(existing?.img   || null)   // null = no cover
+  const [tab,        setTab]       = useState('upload')                  // 'upload' | 'presets'
+  const [dragOver,   setDragOver]  = useState(false)
+  const [previewErr, setPreviewErr] = useState(false)
+  const fileRef = useRef()
 
   const PRESET_COLORS = ['#2563eb','#7c3aed','#db2777','#d97706','#059669','#16a34a','#dc2626','#0891b2']
+
+  /* ── File → data URL ─────────────────────────────────────────────────────── */
+  const loadFile = (file) => {
+    if (!file || !file.type.startsWith('image/')) return
+    const reader = new FileReader()
+    reader.onload = (e) => { setImg(e.target.result); setPreviewErr(false) }
+    reader.readAsDataURL(file)
+  }
+
+  const handleFilePick = (e) => loadFile(e.target.files[0])
+  const handleDrop = (e) => {
+    e.preventDefault(); setDragOver(false)
+    loadFile(e.dataTransfer.files[0])
+  }
 
   const handleSubmit = (e) => {
     e.preventDefault()
     if (!name.trim()) return
-    onSave({ name: name.trim(), color })
+    onSave({ name: name.trim(), color, img })
   }
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
-      {/* Modal */}
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-        {/* Header */}
-        <div className="px-6 pt-6 pb-4 border-b border-gray-100">
-          <h2 className="text-lg font-bold text-gray-900">
-            {existing ? 'Edit Collection' : 'Create New Collection'}
-          </h2>
-          <p className="text-[13px] text-gray-400 mt-0.5">
-            {existing ? 'Update collection details.' : 'Group your notes into a focused folder.'}
-          </p>
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden"
+        style={{ maxHeight: '92vh', overflowY: 'auto' }}>
+
+        {/* ── Modal header ─────────────────────────────────────────────────── */}
+        <div className="px-6 pt-6 pb-4 border-b border-gray-100 flex items-start justify-between">
+          <div>
+            <h2 className="text-[17px] font-bold text-gray-900">
+              {existing ? 'Edit Collection' : 'Create New Collection'}
+            </h2>
+            <p className="text-[13px] text-gray-400 mt-0.5">
+              {existing ? 'Update name, colour or cover photo.' : 'Give it a name, colour and a cover photo.'}
+            </p>
+          </div>
+          <button onClick={onClose}
+            className="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors cursor-pointer mt-0.5">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
 
         <form onSubmit={handleSubmit} className="px-6 py-5 flex flex-col gap-5">
-          {/* Name */}
+
+          {/* ── Cover photo section ───────────────────────────────────────── */}
+          <div>
+            <label className="block text-[12px] font-bold text-gray-700 mb-2 uppercase tracking-wide">
+              Cover Photo
+            </label>
+
+            {/* Tab switcher */}
+            <div className="flex items-center p-1 bg-gray-100 rounded-xl mb-3 w-fit gap-1">
+              {[['upload','Upload Photo'],['presets','Choose Preset']].map(([t, lbl]) => (
+                <button key={t} type="button" onClick={() => setTab(t)}
+                  className={`px-3.5 py-1.5 rounded-lg text-[12px] font-semibold transition-all cursor-pointer
+                    ${tab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
+
+            {/* Upload tab */}
+            {tab === 'upload' && (
+              <div
+                onClick={() => fileRef.current.click()}
+                onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleDrop}
+                className={`relative w-full rounded-xl border-2 transition-all cursor-pointer overflow-hidden
+                  ${dragOver ? 'border-blue-400 bg-blue-50' : img ? 'border-gray-200' : 'border-dashed border-gray-300 hover:border-blue-400 hover:bg-blue-50/30'}`}
+                style={{ height: '160px' }}
+              >
+                {img && !previewErr ? (
+                  <>
+                    {/* Cover preview */}
+                    <img src={img} alt="cover" className="w-full h-full object-cover"
+                      onError={() => setPreviewErr(true)} />
+                    {/* Overlay actions */}
+                    <div className="absolute inset-0 bg-black/40 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+                      <span className="px-3 py-1.5 bg-white/90 rounded-lg text-[12px] font-bold text-gray-800">
+                        📷 Change Photo
+                      </span>
+                    </div>
+                    {/* Remove button */}
+                    <button type="button"
+                      onClick={e => { e.stopPropagation(); setImg(null); setPreviewErr(false) }}
+                      className="absolute top-2 right-2 w-7 h-7 bg-black/60 hover:bg-black/80 rounded-full flex items-center justify-center text-white transition-colors cursor-pointer">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </>
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full gap-2 select-none">
+                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors
+                      ${dragOver ? 'bg-blue-100' : 'bg-gray-100'}`}>
+                      <svg className={`w-6 h-6 transition-colors ${dragOver ? 'text-blue-500' : 'text-gray-400'}`}
+                        fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+                          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                    <p className={`text-[13px] font-semibold transition-colors ${dragOver ? 'text-blue-600' : 'text-gray-500'}`}>
+                      {dragOver ? 'Drop to set as cover' : 'Click or drag a photo here'}
+                    </p>
+                    <p className="text-[11px] text-gray-400">PNG, JPG, WEBP — any size</p>
+                  </div>
+                )}
+                <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFilePick} />
+              </div>
+            )}
+
+            {/* Presets tab */}
+            {tab === 'presets' && (
+              <div className="grid grid-cols-4 gap-2">
+                {PRESET_COVERS.map(preset => (
+                  <button key={preset.id} type="button" onClick={() => { setImg(preset.url); setPreviewErr(false) }}
+                    className={`relative rounded-xl overflow-hidden cursor-pointer border-2 transition-all hover:scale-105
+                      ${img === preset.url ? 'border-blue-500 ring-2 ring-blue-300' : 'border-transparent hover:border-gray-300'}`}
+                    style={{ height: '70px' }}>
+                    <img src={preset.url} alt={preset.label} className="w-full h-full object-cover" />
+                    {img === preset.url && (
+                      <div className="absolute inset-0 bg-blue-500/30 flex items-center justify-center">
+                        <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center shadow">
+                          <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        </div>
+                      </div>
+                    )}
+                    <div className="absolute bottom-0 inset-x-0 bg-black/40 py-0.5 text-center">
+                      <span className="text-[9px] text-white font-semibold">{preset.label}</span>
+                    </div>
+                  </button>
+                ))}
+                {/* No cover option */}
+                <button type="button" onClick={() => setImg(null)}
+                  className={`relative rounded-xl overflow-hidden cursor-pointer border-2 transition-all hover:scale-105 flex flex-col items-center justify-center gap-1
+                    ${!img ? 'border-blue-500 ring-2 ring-blue-300 bg-blue-50' : 'border-dashed border-gray-300 hover:border-gray-400 bg-gray-50'}`}
+                  style={{ height: '70px' }}>
+                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+                      d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                  </svg>
+                  <span className="text-[9px] text-gray-500 font-semibold">No Cover</span>
+                </button>
+              </div>
+            )}
+
+            {/* "No photo" hint when nothing selected */}
+            {!img && (
+              <p className="mt-2 text-[11px] text-gray-400">
+                No cover selected — the card will show a colour background instead.
+              </p>
+            )}
+          </div>
+
+          {/* ── Collection Name ───────────────────────────────────────────── */}
           <div>
             <label className="block text-[12px] font-bold text-gray-700 mb-1.5 uppercase tracking-wide">
               Collection Name
@@ -91,35 +246,66 @@ function CollectionModal({ existing, onSave, onClose }) {
             />
           </div>
 
-          {/* Color */}
+          {/* ── Colour ───────────────────────────────────────────────────── */}
           <div>
             <label className="block text-[12px] font-bold text-gray-700 mb-2 uppercase tracking-wide">
-              Colour
+              Accent Colour
             </label>
             <div className="flex items-center gap-2 flex-wrap">
               {PRESET_COLORS.map(c => (
                 <button key={c} type="button" onClick={() => setColor(c)}
-                  className={`w-7 h-7 rounded-full transition-all cursor-pointer border-2
-                    ${color === c ? 'scale-125 border-gray-400' : 'border-transparent hover:scale-110'}`}
-                  style={{ background: c }}
+                  className={`w-8 h-8 rounded-full transition-all cursor-pointer border-[3px] shadow-sm
+                    ${color === c ? 'scale-125 border-white ring-2 ring-offset-1' : 'border-transparent hover:scale-110'}`}
+                  style={{ background: c, ringColor: c }}
                 />
               ))}
             </div>
           </div>
 
-          {/* Actions */}
+          {/* ── Preview strip ─────────────────────────────────────────────── */}
+          <div className="rounded-xl overflow-hidden border border-gray-200 shadow-sm">
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-3 py-2 bg-gray-50 border-b border-gray-100">
+              Card Preview
+            </p>
+            <div className="flex items-center gap-3 p-3">
+              <div className="w-16 h-12 rounded-lg overflow-hidden flex-shrink-0 border border-gray-100"
+                style={{ background: img ? undefined : `${color}22` }}>
+                {img ? (
+                  <img src={img} alt="preview" className="w-full h-full object-cover" onError={() => {}} />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <svg className="w-5 h-5" fill="none" stroke={color} viewBox="0 0 24 24" style={{ opacity: 0.5 }}>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                        d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+                    </svg>
+                  </div>
+                )}
+              </div>
+              <div>
+                <p className="text-[14px] font-bold text-gray-900">{name || 'Collection Name'}</p>
+                <p className="text-[12px] text-gray-500">0 Notes</p>
+                <div className="flex items-center gap-1 mt-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
+                  <span className="text-[10px] text-gray-400">Accent colour</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Actions ──────────────────────────────────────────────────── */}
           <div className="flex items-center justify-end gap-2 pt-1">
             <button type="button" onClick={onClose}
               className="px-4 py-2 rounded-xl text-[13px] font-semibold text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer">
               Cancel
             </button>
             <button type="submit" disabled={!name.trim()}
-              className="px-5 py-2 rounded-xl text-[13px] font-bold text-white bg-blue-600
-                         hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer shadow-sm"
+              className="px-5 py-2.5 rounded-xl text-[13px] font-bold text-white
+                         disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer shadow-sm hover:opacity-90 active:scale-95"
               style={{ background: color }}>
               {existing ? 'Save Changes' : 'Create Collection'}
             </button>
           </div>
+
         </form>
       </div>
     </div>
@@ -157,7 +343,7 @@ function DeleteModal({ name, onConfirm, onClose }) {
 
 /* ── Collection card ───────────────────────────────────────────────────────── */
 function CollectionCard({ col, onOpen, onEdit, onDelete, onToggleActive }) {
-  const [imgErr, setImgErr] = useState(false)
+  const [imgErr,   setImgErr]   = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
 
   return (
@@ -165,19 +351,24 @@ function CollectionCard({ col, onOpen, onEdit, onDelete, onToggleActive }) {
       className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md hover:border-gray-300 transition-all duration-200 cursor-pointer group"
       onClick={() => onOpen(col)}
     >
-      {/* Cover image */}
+      {/* Cover */}
       <div className="relative" style={{ height: '180px' }}>
-        {!imgErr ? (
-          <img src={col.img} alt={col.name}
+        {col.img && !imgErr ? (
+          <img
+            src={col.img}
+            alt={col.name}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-            onError={() => setImgErr(true)} />
+            onError={() => setImgErr(true)}
+          />
         ) : (
-          <div className="w-full h-full flex items-center justify-center"
+          /* Colour fallback when no image or broken URL */
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2"
             style={{ background: `${col.color}18` }}>
-            <svg className="w-12 h-12" fill="none" stroke={col.color} viewBox="0 0 24 24" style={{ opacity: 0.4 }}>
+            <svg className="w-12 h-12" fill="none" stroke={col.color} viewBox="0 0 24 24" style={{ opacity: 0.45 }}>
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1}
                 d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
             </svg>
+            <span className="text-[11px] font-semibold" style={{ color: col.color, opacity: 0.6 }}>No cover</span>
           </div>
         )}
 
@@ -193,7 +384,7 @@ function CollectionCard({ col, onOpen, onEdit, onDelete, onToggleActive }) {
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-10" onClick={e => { e.stopPropagation(); setMenuOpen(false) }} />
-              <div className="absolute top-10 right-0 z-20 bg-white rounded-xl shadow-xl border border-gray-100 py-1 w-40 overflow-hidden">
+              <div className="absolute top-10 right-0 z-20 bg-white rounded-xl shadow-xl border border-gray-100 py-1 w-44 overflow-hidden">
                 <button onClick={e => { e.stopPropagation(); setMenuOpen(false); onEdit(col) }}
                   className="flex items-center gap-2.5 w-full px-3.5 py-2.5 text-[13px] text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer">
                   <svg className="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -221,7 +412,7 @@ function CollectionCard({ col, onOpen, onEdit, onDelete, onToggleActive }) {
           )}
         </div>
 
-        {/* Colour accent bar at bottom of image */}
+        {/* Colour accent bar */}
         <div className="absolute bottom-0 left-0 right-0 h-1" style={{ background: col.color }} />
       </div>
 
@@ -235,11 +426,9 @@ function CollectionCard({ col, onOpen, onEdit, onDelete, onToggleActive }) {
             </span>
           )}
         </div>
-
         <p className="text-[13px] text-gray-500 mb-2.5">
           {col.notes} Note{col.notes !== 1 ? 's' : ''}
         </p>
-
         <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
           <ClockIcon />
           <span>Last updated {col.lastUpdated}</span>
@@ -272,93 +461,70 @@ function AddCard({ onCreate }) {
 
 /* ── Collection Detail view ────────────────────────────────────────────────── */
 const DETAIL_NOTES = [
-  { id: 1, title: 'Chapter 1 — Algebra',     date: 'Added May 10, 2024', tags: ['#algebra', '#equations'],  img: 'https://images.unsplash.com/photo-1509228627152-72ae9ae6848d?w=300&q=80' },
-  { id: 2, title: 'Calculus Practice Set 3', date: 'Added May 8, 2024',  tags: ['#calculus', '#practice'],  img: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=300&q=80' },
-  { id: 3, title: 'Trigonometry Notes',       date: 'Modified 3d ago',    tags: ['#trig'],                   img: 'https://images.unsplash.com/photo-1509228468518-180dd4864904?w=300&q=80' },
-  { id: 4, title: 'Statistics Summary',       date: 'Added Apr 28, 2024', tags: ['#stats', '#probability'], img: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=300&q=80' },
+  { id: 1, title: 'Chapter 1 — Algebra',     date: 'Added May 10, 2024', tags: ['#algebra', '#equations'], img: 'https://images.unsplash.com/photo-1509228627152-72ae9ae6848d?w=300&q=80' },
+  { id: 2, title: 'Calculus Practice Set 3', date: 'Added May 8, 2024',  tags: ['#calculus'],              img: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=300&q=80' },
+  { id: 3, title: 'Trigonometry Notes',       date: 'Modified 3d ago',    tags: ['#trig'],                  img: 'https://images.unsplash.com/photo-1509228468518-180dd4864904?w=300&q=80' },
+  { id: 4, title: 'Statistics Summary',       date: 'Added Apr 28, 2024', tags: ['#stats'],                 img: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=300&q=80' },
 ]
 
 function CollectionDetail({ col, onBack, onGoToUpload }) {
   const [imgErrors, setImgErrors] = useState({})
-
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="px-8 pt-7 pb-4">
-
-        {/* Breadcrumb + title */}
-        <div className="flex items-center gap-3 mb-6">
-          <button onClick={onBack}
-            className="w-9 h-9 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center hover:bg-gray-200 transition-colors cursor-pointer">
-            <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <div>
-            <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide">Collections</p>
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full" style={{ background: col.color }} />
-              <h1 className="text-[24px] font-extrabold text-gray-900">{col.name}</h1>
-              {col.active && (
-                <span className="px-2 py-0.5 bg-blue-100 text-blue-600 text-[10px] font-bold rounded-full border border-blue-200 uppercase tracking-wide">
-                  Active
-                </span>
-              )}
-            </div>
+    <div>
+      <div className="flex items-center gap-3 mb-6">
+        <button onClick={onBack}
+          className="w-9 h-9 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center hover:bg-gray-200 transition-colors cursor-pointer">
+          <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <div>
+          <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide">Collections</p>
+          <div className="flex items-center gap-2">
+            <span className="w-3 h-3 rounded-full" style={{ background: col.color }} />
+            <h1 className="text-[24px] font-extrabold text-gray-900">{col.name}</h1>
+            {col.active && (
+              <span className="px-2 py-0.5 bg-blue-100 text-blue-600 text-[10px] font-bold rounded-full border border-blue-200 uppercase">Active</span>
+            )}
           </div>
         </div>
+      </div>
 
-        {/* Stats row */}
-        <div className="flex items-center gap-4 mb-6">
-          {[
-            { label: 'Total Notes', value: col.notes, icon: '📄' },
-            { label: 'Last Updated', value: col.lastUpdated, icon: '🕐' },
-            { label: 'Status', value: col.active ? 'Active' : 'Inactive', icon: '📍' },
-          ].map(s => (
-            <div key={s.label} className="flex-1 bg-white rounded-xl border border-gray-200 px-4 py-3 shadow-sm">
-              <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-0.5">{s.label}</p>
-              <p className="text-[15px] font-bold text-gray-900">{s.icon} {s.value}</p>
+      <div className="flex items-center gap-4 mb-6">
+        {[{ label:'Total Notes', value: col.notes, icon:'📄' },{ label:'Last Updated', value: col.lastUpdated, icon:'🕐' },{ label:'Status', value: col.active ? 'Active':'Inactive', icon:'📍' }].map(s => (
+          <div key={s.label} className="flex-1 bg-white rounded-xl border border-gray-200 px-4 py-3 shadow-sm">
+            <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-0.5">{s.label}</p>
+            <p className="text-[15px] font-bold text-gray-900">{s.icon} {s.value}</p>
+          </div>
+        ))}
+        <button onClick={onGoToUpload}
+          className="flex items-center gap-2 px-4 py-3 text-white text-[13px] font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex-shrink-0 hover:opacity-90"
+          style={{ background: col.color }}>
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+          Add Notes
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+        {DETAIL_NOTES.map(note => (
+          <div key={note.id} className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group">
+            <div style={{ height: '140px' }} className="overflow-hidden bg-gray-100">
+              {!imgErrors[note.id]
+                ? <img src={note.img} alt={note.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" onError={() => setImgErrors(p => ({ ...p, [note.id]: true }))} />
+                : <div className="w-full h-full flex items-center justify-center"><svg className="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg></div>
+              }
             </div>
-          ))}
-          <button onClick={onGoToUpload}
-            className="flex items-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white text-[13px] font-bold
-                       rounded-xl shadow-sm transition-colors cursor-pointer flex-shrink-0"
-            style={{ background: col.color }}>
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-            </svg>
-            Add Notes
-          </button>
-        </div>
-
-        {/* Notes grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-          {DETAIL_NOTES.map(note => (
-            <div key={note.id} className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group">
-              <div style={{ height: '140px' }} className="overflow-hidden bg-gray-100">
-                {!imgErrors[note.id] ? (
-                  <img src={note.img} alt={note.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    onError={() => setImgErrors(p => ({ ...p, [note.id]: true }))} />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <svg className="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                  </div>
-                )}
-              </div>
-              <div className="px-3.5 pt-3 pb-3.5">
-                <p className="text-[13px] font-bold text-gray-900 mb-1 line-clamp-1">{note.title}</p>
-                <p className="text-[11px] text-gray-400 mb-2">{note.date}</p>
-                <div className="flex flex-wrap gap-1">
-                  {note.tags.map(t => (
-                    <span key={t} className="px-2 py-0.5 bg-gray-100 rounded-full text-[10px] text-gray-500 border border-gray-200">{t}</span>
-                  ))}
-                </div>
+            <div className="px-3.5 pt-3 pb-3.5">
+              <p className="text-[13px] font-bold text-gray-900 mb-1 line-clamp-1">{note.title}</p>
+              <p className="text-[11px] text-gray-400 mb-2">{note.date}</p>
+              <div className="flex flex-wrap gap-1">
+                {note.tags.map(t => <span key={t} className="px-2 py-0.5 bg-gray-100 rounded-full text-[10px] text-gray-500 border border-gray-200">{t}</span>)}
               </div>
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -368,55 +534,65 @@ function CollectionDetail({ col, onBack, onGoToUpload }) {
    MAIN PAGE
    ══════════════════════════════════════════════════════════════════════════════ */
 export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload }) {
-  const [collections, setCollections] = useState(INIT_COLLECTIONS)
-  const [search,      setSearch]      = useState('')
-  const [modal,       setModal]       = useState(null)   // null | 'create' | { col } (edit)
-  const [deleteTarget, setDeleteTarget] = useState(null) // null | col
-  const [openCol,     setOpenCol]     = useState(null)   // null | col — detail view
+  const [collections,  setCollections]  = useState(INIT_COLLECTIONS)
+  const [search,       setSearch]       = useState('')
+  const [modal,        setModal]        = useState(null)      // null | 'create' | { col }
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [openCol,      setOpenCol]      = useState(null)
 
-  /* ── CRUD ─────────────────────────────────────────────────────────────────── */
-  const handleCreate = useCallback(({ name, color }) => {
-    setCollections(p => [...p, {
-      id: Date.now(), name, color, notes: 0,
-      lastUpdated: 'just now', active: false,
-      img: `https://images.unsplash.com/photo-1488190211105-8b0e65b80b4e?w=600&q=80`,
-    }])
+  /* ── Create ──────────────────────────────────────────────────────────────── */
+  const handleCreate = useCallback(({ name, color, img }) => {
+    setCollections(prev => [
+      ...prev,
+      {
+        id: Date.now(),
+        name,
+        color,
+        img: img || null,        // ← only the user's own chosen image, never stolen
+        notes: 0,
+        lastUpdated: 'just now',
+        active: false,
+      },
+    ])
     setModal(null)
   }, [])
 
-  const handleEdit = useCallback(({ name, color }) => {
-    setCollections(p => p.map(c => c.id === modal.col.id ? { ...c, name, color } : c))
+  /* ── Edit ─────────────────────────────────────────────────────────────────── */
+  const handleEdit = useCallback(({ name, color, img }) => {
+    setCollections(prev =>
+      prev.map(c => c.id === modal.col.id ? { ...c, name, color, img: img ?? null } : c)
+    )
     setModal(null)
   }, [modal])
 
+  /* ── Delete ───────────────────────────────────────────────────────────────── */
   const handleDelete = useCallback(() => {
-    setCollections(p => p.filter(c => c.id !== deleteTarget.id))
+    setCollections(prev => prev.filter(c => c.id !== deleteTarget.id))
     setDeleteTarget(null)
   }, [deleteTarget])
 
+  /* ── Toggle active ────────────────────────────────────────────────────────── */
   const handleToggleActive = useCallback(id => {
-    setCollections(p => p.map(c => c.id === id ? { ...c, active: !c.active } : c))
+    setCollections(prev => prev.map(c => c.id === id ? { ...c, active: !c.active } : c))
   }, [])
 
-  /* ── Filtered list ─────────────────────────────────────────────────────────── */
+  /* ── Filtered ─────────────────────────────────────────────────────────────── */
   const filtered = search.trim()
     ? collections.filter(c => c.name.toLowerCase().includes(search.toLowerCase()))
     : collections
 
   const NAV = [
-    { key: 'notes',       label: 'My Notes',    icon: <MyNotesIcon />,         onClick: onGoToNotes   },
-    { key: 'collections', label: 'Collections', icon: <CollectIcon active />,  onClick: () => {}      },
-    { key: 'favorites',   label: 'Favorites',   icon: <FavoritesIcon />,        onClick: () => {}      },
-    { key: 'trash',       label: 'Trash',       icon: <TrashIcon />,            onClick: () => {}      },
-    { key: 'settings',    label: 'Settings',    icon: <SettingsIcon />,         onClick: () => {}      },
+    { key: 'notes',       label: 'My Notes',    icon: <MyNotesIcon />,        onClick: onGoToNotes },
+    { key: 'collections', label: 'Collections', icon: <CollectIcon active />, onClick: () => {}   },
+    { key: 'favorites',   label: 'Favorites',   icon: <FavoritesIcon />,       onClick: () => {}   },
+    { key: 'trash',       label: 'Trash',        icon: <TrashIcon />,           onClick: () => {}   },
+    { key: 'settings',   label: 'Settings',     icon: <SettingsIcon />,        onClick: () => {}   },
   ]
 
   return (
     <div className="flex h-screen overflow-hidden bg-white" style={{ fontFamily: 'Inter,system-ui,sans-serif' }}>
 
-      {/* ══════════════════════════════════
-          SIDEBAR
-         ══════════════════════════════════ */}
+      {/* ══════════════════════════════════ SIDEBAR ══════════════════════════ */}
       <aside className="w-[230px] bg-white border-r border-gray-200 flex flex-col flex-shrink-0 h-screen">
 
         {/* Logo */}
@@ -449,7 +625,7 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
           })}
         </nav>
 
-        {/* Upgrade Plan card */}
+        {/* Upgrade card */}
         <div className="mx-3 mb-4 px-4 py-4 bg-blue-50 rounded-2xl border border-blue-100">
           <p className="text-[13px] font-bold text-gray-900 mb-1">Upgrade Plan</p>
           <p className="text-[11px] text-gray-500 mb-3 leading-snug">Get advanced OCR and unlimited storage.</p>
@@ -457,17 +633,13 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
             Go Pro
           </button>
         </div>
-
       </aside>
 
-      {/* ══════════════════════════════════
-          MAIN
-         ══════════════════════════════════ */}
+      {/* ══════════════════════════════════ MAIN ═════════════════════════════ */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
         {/* Top bar */}
         <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-4 flex-shrink-0">
-          {/* Search */}
           <div className="flex-1 relative">
             <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
               fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -479,10 +651,7 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
                          placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30
                          focus:bg-white border border-transparent focus:border-blue-400/40 transition-all" />
           </div>
-
-          {/* Right actions */}
           <div className="flex items-center gap-3 flex-shrink-0">
-            {/* Bell */}
             <button className="relative w-9 h-9 rounded-full border border-gray-200 bg-gray-50 flex items-center justify-center hover:bg-gray-100 transition-colors cursor-pointer">
               <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -490,14 +659,12 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
               </svg>
               <span className="absolute top-2 right-2 w-1.5 h-1.5 bg-red-500 rounded-full" />
             </button>
-
-            {/* User */}
             <div className="flex items-center gap-2.5 cursor-pointer">
               <div className="text-right">
                 <p className="text-[12px] font-bold text-gray-900 leading-none">Alex Rivera</p>
                 <p className="text-[10px] text-gray-400 leading-none mt-0.5 uppercase tracking-wide">Free Plan</p>
               </div>
-              <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-gray-200 bg-gray-200 flex items-center justify-center flex-shrink-0">
+              <div className="w-9 h-9 rounded-full bg-gray-200 border-2 border-gray-200 flex items-center justify-center flex-shrink-0">
                 <svg className="w-6 h-6 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/>
                 </svg>
@@ -506,11 +673,11 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
           </div>
         </div>
 
-        {/* Scrollable content */}
+        {/* Content */}
         <div className="flex-1 overflow-y-auto">
           <div className="px-8 pt-7 pb-24">
 
-            {/* Page header */}
+            {/* Header row */}
             {!openCol && (
               <div className="flex items-start justify-between mb-7">
                 <div>
@@ -533,7 +700,6 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
               <CollectionDetail col={openCol} onBack={() => setOpenCol(null)} onGoToUpload={onGoToUpload} />
             ) : (
               <>
-                {/* Empty search */}
                 {filtered.length === 0 && search && (
                   <div className="flex flex-col items-center justify-center py-24 text-center">
                     <svg className="w-12 h-12 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -541,24 +707,19 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
                     </svg>
                     <p className="text-base font-bold text-gray-600 mb-1">No collections match "{search}"</p>
                     <button onClick={() => setSearch('')}
-                      className="text-sm font-semibold text-blue-600 hover:underline cursor-pointer mt-2">
-                      Clear search
-                    </button>
+                      className="text-sm font-semibold text-blue-600 hover:underline cursor-pointer mt-2">Clear search</button>
                   </div>
                 )}
 
-                {/* Grid */}
                 {!(filtered.length === 0 && search) && (
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-5">
-                    {/* Add card — always first */}
                     <AddCard onCreate={() => setModal('create')} />
-
                     {filtered.map(col => (
                       <CollectionCard
                         key={col.id}
                         col={col}
-                        onOpen={c  => setOpenCol(c)}
-                        onEdit={c  => setModal({ col: c })}
+                        onOpen={c => setOpenCol(c)}
+                        onEdit={c => setModal({ col: c })}
                         onDelete={c => setDeleteTarget(c)}
                         onToggleActive={handleToggleActive}
                       />
@@ -570,7 +731,7 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
           </div>
         </div>
 
-        {/* Floating + button (bottom right) */}
+        {/* FAB */}
         {!openCol && (
           <button onClick={() => setModal('create')}
             className="fixed bottom-6 right-6 w-14 h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-full
@@ -582,7 +743,7 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
         )}
       </div>
 
-      {/* ── Modals ─────────────────────────────────────────────────────────── */}
+      {/* Modals */}
       {modal === 'create' && (
         <CollectionModal onSave={handleCreate} onClose={() => setModal(null)} />
       )}
@@ -592,7 +753,6 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
       {deleteTarget && (
         <DeleteModal name={deleteTarget.name} onConfirm={handleDelete} onClose={() => setDeleteTarget(null)} />
       )}
-
     </div>
   )
 }
