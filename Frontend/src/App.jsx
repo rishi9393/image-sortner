@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react'
 import LandingPage from './components/LandingPage.jsx'
 import MyNotesPage from './components/MyNotesPage.jsx'
+import CollectionsPage from './components/CollectionsPage.jsx'
 import Header from './components/Header.jsx'
 import Footer from './components/Footer.jsx'
 import UploadSection from './components/UploadSection.jsx'
@@ -17,7 +18,7 @@ const PROCESSING_STEPS = [
 ]
 
 export default function App() {
-  const [step, setStep]               = useState('landing')  // 'landing' | 'upload' | 'processing' | 'results' | 'notes'
+  const [step, setStep]               = useState('landing')  // 'landing' | 'upload' | 'processing' | 'results' | 'notes' | 'collections'
   const [files, setFiles]             = useState([])
   const [sessionId, setSessionId]     = useState(null)
   const [sortResults, setSortResults] = useState(null)
@@ -136,6 +137,20 @@ export default function App() {
       <>
         <MyNotesPage
           onGoHome={() => setStep('landing')}
+          onGoToUpload={() => setStep('upload')}
+        />
+        {toast && <Toast message={toast} />}
+      </>
+    )
+  }
+
+  // Collections page — own sidebar layout
+  if (step === 'collections') {
+    return (
+      <>
+        <CollectionsPage
+          onGoHome={() => setStep('landing')}
+          onGoToNotes={() => setStep('notes')}
           onGoToUpload={() => setStep('upload')}
         />
         {toast && <Toast message={toast} />}

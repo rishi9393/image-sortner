@@ -1,7 +1,8 @@
 export default function Header({ onLogoClick, onNavigate, activeStep }) {
   const navItems = [
-    { key: 'upload', label: 'Upload' },
-    { key: 'notes',  label: 'My Notes' },
+    { key: 'upload',      label: 'Upload'      },
+    { key: 'notes',       label: 'My Notes'    },
+    { key: 'collections', label: 'Collections' },
   ]
 
   return (
@@ -41,9 +42,6 @@ export default function Header({ onLogoClick, onNavigate, activeStep }) {
               </button>
             )
           })}
-          <button className="px-4 py-2 rounded-lg text-sm font-semibold text-app-text-sec hover:text-app-text hover:bg-app-bg transition-colors cursor-pointer">
-            Collections
-          </button>
         </nav>
 
         {/* Right icons */}
