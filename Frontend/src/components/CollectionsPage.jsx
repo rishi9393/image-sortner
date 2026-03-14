@@ -1,36 +1,59 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 
 /* ── Mock collections ──────────────────────────────────────────────────────── */
 const INIT_COLLECTIONS = [
   {
-    id: 1, name: 'Mathematics', notes: 42, lastUpdated: '2h ago', active: true,
+    id: 1, name: 'Mathematics', lastUpdated: '2h ago', active: true,
     img: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=600&q=80',
     color: '#2563eb', favorited: false, trashed: false,
+    notesList: [
+      { id: 101, title: 'Chapter 1 — Algebra',     date: 'Added May 10, 2024', tags: ['#algebra', '#equations'], img: 'https://images.unsplash.com/photo-1509228627152-72ae9ae6848d?w=300&q=80' },
+      { id: 102, title: 'Calculus Practice Set 3', date: 'Added May 8, 2024',  tags: ['#calculus'],              img: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=300&q=80' },
+      { id: 103, title: 'Trigonometry Notes',       date: 'Modified 3d ago',    tags: ['#trig'],                  img: 'https://images.unsplash.com/photo-1509228468518-180dd4864904?w=300&q=80' },
+      { id: 104, title: 'Statistics Summary',       date: 'Added Apr 28, 2024', tags: ['#stats'],                 img: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=300&q=80' },
+    ],
   },
   {
-    id: 2, name: 'History', notes: 28, lastUpdated: '5h ago', active: false,
+    id: 2, name: 'History', lastUpdated: '5h ago', active: false,
     img: 'https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=600&q=80',
     color: '#d97706', favorited: false, trashed: false,
+    notesList: [
+      { id: 201, title: 'World War II Overview',   date: 'Added May 1, 2024',  tags: ['#ww2'],        img: 'https://images.unsplash.com/photo-1524492412937-b28074a5d7da?w=300&q=80' },
+      { id: 202, title: 'Ancient Civilizations',   date: 'Added Apr 20, 2024', tags: ['#ancient'],    img: 'https://images.unsplash.com/photo-1565689157206-0fddef7589a2?w=300&q=80' },
+    ],
   },
   {
-    id: 3, name: 'Physics', notes: 15, lastUpdated: '1d ago', active: false,
+    id: 3, name: 'Physics', lastUpdated: '1d ago', active: false,
     img: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=600&q=80',
     color: '#7c3aed', favorited: false, trashed: false,
+    notesList: [
+      { id: 301, title: 'Newton\'s Laws',          date: 'Added Apr 15, 2024', tags: ['#mechanics'],  img: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=300&q=80' },
+    ],
   },
   {
-    id: 4, name: 'Chemistry', notes: 34, lastUpdated: '3d ago', active: false,
+    id: 4, name: 'Chemistry', lastUpdated: '3d ago', active: false,
     img: 'https://images.unsplash.com/photo-1532187863486-abf9dbad1b69?w=600&q=80',
     color: '#059669', favorited: false, trashed: false,
+    notesList: [
+      { id: 401, title: 'Periodic Table Notes',    date: 'Added Mar 30, 2024', tags: ['#elements'],   img: 'https://images.unsplash.com/photo-1532187863486-abf9dbad1b69?w=300&q=80' },
+      { id: 402, title: 'Organic Chemistry Ch.2',  date: 'Added Mar 25, 2024', tags: ['#organic'],    img: 'https://images.unsplash.com/photo-1603126857599-f6e157fa2fe6?w=300&q=80' },
+      { id: 403, title: 'Acid-Base Reactions',     date: 'Added Mar 18, 2024', tags: ['#reactions'],  img: 'https://images.unsplash.com/photo-1616400619175-5beda3a17896?w=300&q=80' },
+    ],
   },
   {
-    id: 5, name: 'Art History', notes: 12, lastUpdated: '1w ago', active: false,
+    id: 5, name: 'Art History', lastUpdated: '1w ago', active: false,
     img: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600&q=80',
     color: '#db2777', favorited: false, trashed: false,
+    notesList: [],
   },
   {
-    id: 6, name: 'Biology', notes: 50, lastUpdated: '2w ago', active: false,
+    id: 6, name: 'Biology', lastUpdated: '2w ago', active: false,
     img: 'https://images.unsplash.com/photo-1530026405186-ed1f139313f3?w=600&q=80',
     color: '#16a34a', favorited: false, trashed: false,
+    notesList: [
+      { id: 601, title: 'Cell Structure Diagram',  date: 'Added Mar 1, 2024',  tags: ['#cells'],      img: 'https://images.unsplash.com/photo-1530026405186-ed1f139313f3?w=300&q=80' },
+      { id: 602, title: 'Photosynthesis Notes',    date: 'Added Feb 20, 2024', tags: ['#plants'],     img: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=300&q=80' },
+    ],
   },
 ]
 
@@ -399,7 +422,7 @@ function CollectionCard({ col, onOpen, onEdit, onDelete, onToggleActive, onToggl
             </span>
           )}
         </div>
-        <p className="text-[13px] text-gray-500 mb-2.5">{col.notes} Note{col.notes !== 1 ? 's' : ''}</p>
+        <p className="text-[13px] text-gray-500 mb-2.5">{(col.notesList || []).length} Note{(col.notesList || []).length !== 1 ? 's' : ''}</p>
         <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
           <ClockIcon />
           <span>Last updated {col.lastUpdated}</span>
@@ -436,7 +459,7 @@ function TrashCard({ col, onRestore, onDeleteForever }) {
       </div>
       <div className="px-4 py-3">
         <h3 className="text-[14px] font-bold text-gray-700 truncate mb-1">{col.name}</h3>
-        <p className="text-[12px] text-gray-400 mb-3">{col.notes} Note{col.notes !== 1 ? 's' : ''}</p>
+        <p className="text-[12px] text-gray-400 mb-3">{(col.notesList || []).length} Note{(col.notesList || []).length !== 1 ? 's' : ''}</p>
         <div className="flex gap-2">
           <button onClick={() => onRestore(col.id)}
             className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[12px] font-bold rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors cursor-pointer border border-blue-100">
@@ -474,15 +497,11 @@ function AddCard({ onCreate }) {
 }
 
 /* ── Collection Detail ─────────────────────────────────────────────────────── */
-const DETAIL_NOTES = [
-  { id: 1, title: 'Chapter 1 — Algebra',     date: 'Added May 10, 2024', tags: ['#algebra', '#equations'], img: 'https://images.unsplash.com/photo-1509228627152-72ae9ae6848d?w=300&q=80' },
-  { id: 2, title: 'Calculus Practice Set 3', date: 'Added May 8, 2024',  tags: ['#calculus'],              img: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=300&q=80' },
-  { id: 3, title: 'Trigonometry Notes',       date: 'Modified 3d ago',    tags: ['#trig'],                  img: 'https://images.unsplash.com/photo-1509228468518-180dd4864904?w=300&q=80' },
-  { id: 4, title: 'Statistics Summary',       date: 'Added Apr 28, 2024', tags: ['#stats'],                 img: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=300&q=80' },
-]
-
-function CollectionDetail({ col, onBack, onGoToUpload }) {
+function CollectionDetail({ col, onBack, onGoToUpload, onDeleteNote }) {
   const [imgErrors, setImgErrors] = useState({})
+  const [confirmId, setConfirmId] = useState(null)   // note id pending delete confirm
+  const notes = col.notesList || []
+
   return (
     <div>
       <div className="flex items-center gap-3 mb-6">
@@ -505,7 +524,11 @@ function CollectionDetail({ col, onBack, onGoToUpload }) {
       </div>
 
       <div className="flex items-center gap-4 mb-6">
-        {[{ label:'Total Notes', value: col.notes, icon:'📄' },{ label:'Last Updated', value: col.lastUpdated, icon:'🕐' },{ label:'Status', value: col.active ? 'Active':'Inactive', icon:'📍' }].map(s => (
+        {[
+          { label: 'Total Notes',   value: notes.length,                    icon: '📄' },
+          { label: 'Last Updated',  value: col.lastUpdated,                 icon: '🕐' },
+          { label: 'Status',        value: col.active ? 'Active':'Inactive', icon: '📍' },
+        ].map(s => (
           <div key={s.label} className="flex-1 bg-white rounded-xl border border-gray-200 px-4 py-3 shadow-sm">
             <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide mb-0.5">{s.label}</p>
             <p className="text-[15px] font-bold text-gray-900">{s.icon} {s.value}</p>
@@ -521,30 +544,100 @@ function CollectionDetail({ col, onBack, onGoToUpload }) {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-        {DETAIL_NOTES.map(note => (
-          <div key={note.id} className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md hover:border-gray-300 transition-all cursor-pointer group">
-            <div style={{ height: '140px' }} className="overflow-hidden bg-gray-100">
-              {!imgErrors[note.id]
-                ? <img src={note.img} alt={note.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    onError={() => setImgErrors(p => ({ ...p, [note.id]: true }))} />
-                : <div className="w-full h-full flex items-center justify-center">
-                    <svg className="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      {notes.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-24 text-center">
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4" style={{ background: `${col.color}15` }}>
+            <svg className="w-8 h-8" fill="none" stroke={col.color} viewBox="0 0 24 24" style={{ opacity: 0.6 }}>
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <p className="text-[16px] font-bold text-gray-700 mb-1">No notes yet</p>
+          <p className="text-[13px] text-gray-400 mb-5 max-w-xs">
+            This collection is empty. Upload and process images to add notes here.
+          </p>
+          <button onClick={onGoToUpload}
+            className="flex items-center gap-2 px-5 py-2.5 text-white text-[13px] font-bold rounded-full shadow transition-colors cursor-pointer hover:opacity-90"
+            style={{ background: col.color }}>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+            Add Notes
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+          {notes.map(note => (
+            <div key={note.id}
+              className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm hover:shadow-md hover:border-gray-300 transition-all group relative">
+
+              {/* Image */}
+              <div style={{ height: '140px' }} className="overflow-hidden bg-gray-100 relative">
+                {!imgErrors[note.id]
+                  ? <img src={note.img} alt={note.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      onError={() => setImgErrors(p => ({ ...p, [note.id]: true }))} />
+                  : <div className="w-full h-full flex items-center justify-center">
+                      <svg className="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1}
+                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </div>
+                }
+
+                {/* Delete button — shown on hover */}
+                <button
+                  onClick={e => { e.stopPropagation(); setConfirmId(note.id) }}
+                  className="absolute top-2 right-2 w-7 h-7 bg-red-500 hover:bg-red-600 text-white rounded-full
+                             flex items-center justify-center shadow opacity-0 group-hover:opacity-100
+                             transition-all cursor-pointer"
+                  title="Delete note">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5}
+                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="px-3.5 pt-3 pb-3.5">
+                <p className="text-[13px] font-bold text-gray-900 mb-1 line-clamp-1">{note.title}</p>
+                <p className="text-[11px] text-gray-400 mb-2">{note.date}</p>
+                <div className="flex flex-wrap gap-1">
+                  {note.tags.map(t => (
+                    <span key={t} className="px-2 py-0.5 bg-gray-100 rounded-full text-[10px] text-gray-500 border border-gray-200">{t}</span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Inline confirm overlay */}
+              {confirmId === note.id && (
+                <div className="absolute inset-0 bg-white/95 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center gap-3 z-10 p-4">
+                  <div className="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center">
+                    <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
                   </div>
-              }
+                  <p className="text-[12px] font-bold text-gray-800 text-center leading-snug">Delete this note?</p>
+                  <div className="flex gap-2 w-full">
+                    <button
+                      onClick={e => { e.stopPropagation(); setConfirmId(null) }}
+                      className="flex-1 py-1.5 rounded-lg text-[12px] font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors cursor-pointer">
+                      Cancel
+                    </button>
+                    <button
+                      onClick={e => { e.stopPropagation(); onDeleteNote(note.id); setConfirmId(null) }}
+                      className="flex-1 py-1.5 rounded-lg text-[12px] font-bold bg-red-500 hover:bg-red-600 text-white transition-colors cursor-pointer">
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="px-3.5 pt-3 pb-3.5">
-              <p className="text-[13px] font-bold text-gray-900 mb-1 line-clamp-1">{note.title}</p>
-              <p className="text-[11px] text-gray-400 mb-2">{note.date}</p>
-              <div className="flex flex-wrap gap-1">
-                {note.tags.map(t => <span key={t} className="px-2 py-0.5 bg-gray-100 rounded-full text-[10px] text-gray-500 border border-gray-200">{t}</span>)}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -565,12 +658,24 @@ function EmptyState({ icon, title, subtitle, action }) {
    MAIN PAGE
    ══════════════════════════════════════════════════════════════════════════════ */
 export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload }) {
-  const [collections,   setCollections]  = useState(INIT_COLLECTIONS)
+  const [collections,   setCollections]  = useState(() => {
+    try {
+      const saved = localStorage.getItem('collections')
+      return saved ? JSON.parse(saved) : INIT_COLLECTIONS
+    } catch {
+      return INIT_COLLECTIONS
+    }
+  })
   const [search,        setSearch]       = useState('')
   const [modal,         setModal]        = useState(null)
   const [deleteTarget,  setDeleteTarget] = useState(null)   // { col, permanent }
   const [openCol,       setOpenCol]      = useState(null)
   const [activeView,    setActiveView]   = useState('collections') // 'collections' | 'favorites' | 'trash'
+
+  /* ── Persist to localStorage ──────────────────────────────────────────────── */
+  useEffect(() => {
+    localStorage.setItem('collections', JSON.stringify(collections))
+  }, [collections])
 
   /* ── Computed ─────────────────────────────────────────────────────────────── */
   const active    = collections.filter(c => !c.trashed)
@@ -589,7 +694,7 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
 
   /* ── Handlers ─────────────────────────────────────────────────────────────── */
   const handleCreate = useCallback(({ name, color, img }) => {
-    setCollections(prev => [...prev, { id: Date.now(), name, color, img: img || null, notes: 0, lastUpdated: 'just now', active: false, favorited: false, trashed: false }])
+    setCollections(prev => [...prev, { id: Date.now(), name, color, img: img || null, notesList: [], lastUpdated: 'just now', active: false, favorited: false, trashed: false }])
     setModal(null)
   }, [])
 
@@ -611,8 +716,17 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
     setDeleteTarget(null)
   }, [deleteTarget])
 
-  const handleRestore = useCallback((id) => {
-    setCollections(prev => prev.map(c => c.id === id ? { ...c, trashed: false } : c))
+  const handleDeleteNote = useCallback((noteId) => {
+    setCollections(prev => prev.map(c =>
+      c.id === openCol?.id
+        ? { ...c, notesList: c.notesList.filter(n => n.id !== noteId), lastUpdated: 'just now' }
+        : c
+    ))
+    // keep openCol in sync
+    setOpenCol(prev => prev ? { ...prev, notesList: prev.notesList.filter(n => n.id !== noteId) } : prev)
+  }, [openCol])
+
+  const handleRestore = useCallback((id) => {    setCollections(prev => prev.map(c => c.id === id ? { ...c, trashed: false } : c))
   }, [])
 
   const handleToggleActive = useCallback(id => {
@@ -788,7 +902,7 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
 
             {/* Detail view */}
             {openCol ? (
-              <CollectionDetail col={openCol} onBack={() => setOpenCol(null)} onGoToUpload={onGoToUpload} />
+              <CollectionDetail col={openCol} onBack={() => setOpenCol(null)} onGoToUpload={onGoToUpload} onDeleteNote={handleDeleteNote} />
             ) : activeView === 'trash' ? (
               /* ── Trash view ─────────────────────────────────────────────── */
               trashed.length === 0 ? (
