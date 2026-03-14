@@ -97,38 +97,42 @@ export default function App() {
     showToast('📥 PDF download started!')
   }, [sessionId, showToast])
 
-  /* ── Save processed notes into a collection ─────────────── */
-  const handleSaveToCollection = useCallback((images) => {
-    if (!targetCollection) return
-    try {
-      const saved = localStorage.getItem('collections')
-      const cols  = saved ? JSON.parse(saved) : []
-      const now   = new Date()
-      const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  /* ── Save processed notes into a collection or uncategorized ───────────── */
+  const handleSaveNotes = useCallback((images) => {
+    const now     = new Date()
+    const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 
-      // Build one note entry per image page
-      const newNotes = images.map((img, idx) => ({
-        id:    Date.now() + idx,
-        title: img.originalName
-          ? img.originalName.replace(/\.[^.]+$/, '')   // strip extension
-          : `Page ${idx + 1}`,
-        date: `Added ${dateStr}`,
-        tags: ['#sorted'],
-        img:  img.url || null,
-      }))
+    const newNotes = images.map((img, idx) => ({
+      id:    Date.now() + idx,
+      title: img.originalName ? img.originalName.replace(/\.[^.]+$/, '') : `Page ${idx + 1}`,
+      date:  `Added ${dateStr}`,
+      tags:  ['#sorted'],
+      img:   img.url || null,
+    }))
 
-      const updated = cols.map(c =>
-        c.id === targetCollection.id
-          ? { ...c, notesList: [...(c.notesList || []), ...newNotes], lastUpdated: 'just now' }
-          : c
-      )
-      localStorage.setItem('collections', JSON.stringify(updated))
-      showToast(`✅ ${newNotes.length} note${newNotes.length !== 1 ? 's' : ''} saved to "${targetCollection.name}"!`)
-    } catch (e) {
-      showToast('❌ Could not save to collection.')
+    if (targetCollection) {
+      // Save into specific collection
+      try {
+        const cols    = JSON.parse(localStorage.getItem('collections') || '[]')
+        const updated = cols.map(c =>
+          c.id === targetCollection.id
+            ? { ...c, notesList: [...(c.notesList || []), ...newNotes], lastUpdated: 'just now' }
+            : c
+        )
+        localStorage.setItem('collections', JSON.stringify(updated))
+        showToast(`✅ ${newNotes.length} note${newNotes.length !== 1 ? 's' : ''} saved to "${targetCollection.name}"!`)
+      } catch { showToast('❌ Could not save to collection.') }
+      setTargetCollection(null)
+      setStep('collections')
+    } else {
+      // Save as uncategorized
+      try {
+        const existing = JSON.parse(localStorage.getItem('uncategorized_notes') || '[]')
+        localStorage.setItem('uncategorized_notes', JSON.stringify([...existing, ...newNotes]))
+        showToast(`✅ ${newNotes.length} note${newNotes.length !== 1 ? 's' : ''} saved to My Notes!`)
+      } catch { showToast('❌ Could not save notes.') }
+      setStep('notes')
     }
-    setTargetCollection(null)
-    setStep('collections')
   }, [targetCollection, showToast])
 
   /* ── Reset ──────────────────────────────────────────────── */
@@ -214,7 +218,7 @@ export default function App() {
             onDownloadPDF={handleDownloadPDF}
             onSortAgain={handleSortAgain}
             targetCollection={targetCollection}
-            onSaveToCollection={handleSaveToCollection}
+            onSaveNotes={handleSaveNotes}
           />
         )}
       </main>
