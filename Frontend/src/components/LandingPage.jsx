@@ -1,6 +1,29 @@
+import { useState } from 'react'
+
 export default function LandingPage({ onGetStarted }) {
+  const [showBanner, setShowBanner] = useState(true)
   return (
     <div className="min-h-screen bg-white font-sans">
+
+      {/* ── Announcement Bar ──────────────────────────────── */}
+      {showBanner && (
+        <div className="bg-app-accent text-white text-sm py-2.5 px-4 flex items-center justify-center gap-3 relative">
+          <span className="inline-flex items-center gap-1.5">
+            <svg className="w-3.5 h-3.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
+            </svg>
+            <strong>New:</strong> AI-powered Collections are here —
+          </span>
+          <button onClick={onGetStarted} className="underline underline-offset-2 font-semibold hover:text-blue-100 transition-colors cursor-pointer">
+            Try it free →
+          </button>
+          <button onClick={() => setShowBanner(false)} className="absolute right-4 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded-full hover:bg-white/20 transition-colors cursor-pointer">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       {/* ── Navbar ──────────────────────────────────────────── */}
       <nav className="sticky top-0 z-50 bg-white/90 backdrop-blur border-b border-app-border">
@@ -42,9 +65,39 @@ export default function LandingPage({ onGetStarted }) {
             AI-Powered Organization
           </span>
 
+          {/* Social proof avatars */}
+          <div className="flex items-center gap-3 mb-5">
+            <div className="flex -space-x-2">
+              {[
+                { bg: 'bg-blue-500',    initials: 'PR' },
+                { bg: 'bg-emerald-500', initials: 'AK' },
+                { bg: 'bg-violet-500',  initials: 'MS' },
+                { bg: 'bg-orange-400',  initials: 'JL' },
+                { bg: 'bg-rose-500',    initials: 'TC' },
+              ].map(({ bg, initials }) => (
+                <div key={initials}
+                  className={`w-8 h-8 rounded-full ${bg} border-2 border-white flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0`}>
+                  {initials}
+                </div>
+              ))}
+            </div>
+            <div>
+              <div className="flex items-center gap-0.5 mb-0.5">
+                {[...Array(5)].map((_, i) => (
+                  <svg key={i} className="w-3 h-3 fill-amber-400" viewBox="0 0 20 20">
+                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                  </svg>
+                ))}
+              </div>
+              <p className="text-xs text-app-text-sec">Trusted by <span className="font-bold text-app-text">12,000+</span> students &amp; professionals</p>
+            </div>
+          </div>
+
           <h1 className="text-5xl font-extrabold leading-tight text-app-text mb-4">
             Your notes,<br />
-            <span className="text-app-accent">perfectly ordered.</span>
+            <span style={{ background: 'linear-gradient(135deg,#2563eb 0%,#7c3aed 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+              perfectly ordered.
+            </span>
           </h1>
 
           <p className="text-app-text-sec text-lg mb-8 leading-relaxed">
@@ -84,6 +137,14 @@ export default function LandingPage({ onGetStarted }) {
               Telegram
             </button>
           </div>
+
+          {/* No credit card note */}
+          <p className="flex items-center justify-center gap-1.5 mt-4 text-xs text-app-text-muted">
+            <svg className="w-3.5 h-3.5 text-app-success flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+            </svg>
+            No credit card required &nbsp;·&nbsp; Free tier includes 50 notes/month
+          </p>
         </div>
 
         {/* Right — visual */}
@@ -133,6 +194,23 @@ export default function LandingPage({ onGetStarted }) {
               <p className="text-sm font-semibold text-app-text">42 notes organized</p>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* ── Stats Bar ───────────────────────────────────────── */}
+      <section className="border-y border-app-border bg-app-bg">
+        <div className="max-w-6xl mx-auto px-6 py-10 grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+          {[
+            { value: '12,000+', label: 'Active Users' },
+            { value: '500K+',   label: 'Notes Sorted' },
+            { value: '4.9 ★',   label: 'Average Rating' },
+            { value: '99.9%',   label: 'Uptime' },
+          ].map(({ value, label }) => (
+            <div key={label}>
+              <p className="text-3xl font-extrabold text-app-text mb-1">{value}</p>
+              <p className="text-sm text-app-text-sec">{label}</p>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -226,6 +304,67 @@ export default function LandingPage({ onGetStarted }) {
             <p className="text-app-text-sec text-sm leading-relaxed">
               Our engine maps handwriting similarity and page markers to ensure your multi-page notes stay together.
             </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Testimonials ────────────────────────────────────── */}
+      <section className="bg-app-bg py-20">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-extrabold text-app-text mb-3">Loved by note-takers everywhere</h2>
+            <p className="text-app-text-sec max-w-xl mx-auto text-sm">Real stories from students and professionals who stopped drowning in disorganized photos.</p>
+          </div>
+          <div className="grid md:grid-cols-3 gap-6">
+            {[
+              {
+                quote: "I used to spend 30 minutes every week manually sorting my lecture photos. SmartNotes does it in seconds. Genuinely life-changing for med school.",
+                name: 'Priya R.',
+                role: 'Medical Student, Delhi',
+                initials: 'PR',
+                bg: 'bg-blue-500',
+                stars: 5,
+              },
+              {
+                quote: "Our team shares whiteboard photos in a group chat daily. The auto-sort feature means nothing ever gets lost or out of order. Finally.",
+                name: 'Alex K.',
+                role: 'Product Manager, Berlin',
+                initials: 'AK',
+                bg: 'bg-emerald-500',
+                stars: 5,
+              },
+              {
+                quote: "The collection feature is brilliant — I have separate folders for each subject. It's like Notion but built specifically for handwritten notes.",
+                name: 'Mei S.',
+                role: 'Architecture Student, Singapore',
+                initials: 'MS',
+                bg: 'bg-violet-500',
+                stars: 5,
+              },
+            ].map(({ quote, name, role, initials, bg, stars }) => (
+              <div key={name} className="bg-white rounded-2xl border border-app-border p-6 shadow-card flex flex-col gap-4 hover:shadow-card-md transition-shadow">
+                {/* Stars */}
+                <div className="flex gap-0.5">
+                  {[...Array(stars)].map((_, i) => (
+                    <svg key={i} className="w-4 h-4 fill-amber-400" viewBox="0 0 20 20">
+                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                    </svg>
+                  ))}
+                </div>
+                {/* Quote */}
+                <p className="text-app-text-sec text-sm leading-relaxed flex-1">"{quote}"</p>
+                {/* Author */}
+                <div className="flex items-center gap-3 pt-2 border-t border-app-border">
+                  <div className={`w-9 h-9 rounded-full ${bg} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>
+                    {initials}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-app-text">{name}</p>
+                    <p className="text-xs text-app-text-muted">{role}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
