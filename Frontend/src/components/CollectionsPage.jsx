@@ -837,13 +837,6 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
                          focus:bg-white border border-transparent focus:border-blue-400/40 transition-all" />
           </div>
           <div className="flex items-center gap-3 flex-shrink-0">
-            <button className="relative w-9 h-9 rounded-full border border-gray-200 bg-gray-50 flex items-center justify-center hover:bg-gray-100 transition-colors cursor-pointer">
-              <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-              </svg>
-              <span className="absolute top-2 right-2 w-1.5 h-1.5 bg-red-500 rounded-full" />
-            </button>
             <div className="flex items-center gap-2.5 cursor-pointer">
               <div className="text-right">
                 <p className="text-[12px] font-bold text-gray-900 leading-none">Alex Rivera</p>
