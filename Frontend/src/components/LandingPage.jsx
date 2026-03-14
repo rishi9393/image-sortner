@@ -441,7 +441,7 @@ export default function LandingPage({ onGetStarted }) {
         </div>
 
         <div className="border-t border-app-border max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <p className="text-app-text-muted text-xs">© 2024 Smart Notes Image Sorter. All rights reserved.</p>
+          <p className="text-app-text-muted text-xs">© 2026 Smart Notes Image Sorter. All rights reserved.</p>
           <div className="flex items-center gap-4">
             <svg className="w-4 h-4 text-app-text-muted hover:text-app-accent cursor-pointer transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
