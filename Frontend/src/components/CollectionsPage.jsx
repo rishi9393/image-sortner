@@ -534,7 +534,7 @@ function CollectionDetail({ col, onBack, onGoToUpload, onDeleteNote }) {
             <p className="text-[15px] font-bold text-gray-900">{s.icon} {s.value}</p>
           </div>
         ))}
-        <button onClick={() => onGoToUpload(col.id, col.name)}
+        <button onClick={() => onGoToUpload(col.id, col.name, col.color)}
           className="flex items-center gap-2 px-4 py-3 text-white text-[13px] font-bold rounded-xl shadow-sm transition-colors cursor-pointer flex-shrink-0 hover:opacity-90"
           style={{ background: col.color }}>
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -556,7 +556,7 @@ function CollectionDetail({ col, onBack, onGoToUpload, onDeleteNote }) {
           <p className="text-[13px] text-gray-400 mb-5 max-w-xs">
             This collection is empty. Upload and process images to add notes here.
           </p>
-          <button onClick={() => onGoToUpload(col.id, col.name)}
+          <button onClick={() => onGoToUpload(col.id, col.name, col.color)}
             className="flex items-center gap-2 px-5 py-2.5 text-white text-[13px] font-bold rounded-full shadow transition-colors cursor-pointer hover:opacity-90"
             style={{ background: col.color }}>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -174,8 +174,8 @@ export default function App() {
         <CollectionsPage
           onGoHome={() => setStep('landing')}
           onGoToNotes={() => setStep('notes')}
-          onGoToUpload={(colId, colName) => {
-            setTargetCollection(colId ? { id: colId, name: colName } : null)
+          onGoToUpload={(colId, colName, colColor) => {
+            setTargetCollection(colId ? { id: colId, name: colName, color: colColor } : null)
             setStep('upload')
           }}
         />
@@ -200,6 +200,7 @@ export default function App() {
             onFilesSelected={handleFilesSelected}
             onClear={handleClear}
             onSort={handleSort}
+            targetCollection={targetCollection}
           />
         )}
 

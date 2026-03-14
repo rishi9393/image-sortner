@@ -4,6 +4,22 @@ const MAX_FILES   = 50
 const MAX_SIZE_MB = 20
 const VALID_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
 
+function loadRecentNotes() {
+  try {
+    const cols = JSON.parse(localStorage.getItem('collections') || '[]').filter(c => !c.trashed)
+    const all = []
+    cols.forEach(col => {
+      ;(col.notesList || []).forEach(note => {
+        all.push({ name: note.title, status: `In "${col.name}"`, color: col.color })
+      })
+    })
+    // newest first (ids are Date.now()-based), take last 4
+    return all.slice(-4).reverse()
+  } catch {
+    return []
+  }
+}
+
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -25,21 +41,17 @@ function validateFiles(fileList) {
   return { valid, errors }
 }
 
-const RECENT_UPLOADS = [
-  { name: 'Math_Linear_Algebra.jpg', status: "Sorted into 'Calculus'" },
-  { name: 'Lecture_Physics_12.png',  status: 'Processing…' },
-]
-
 const PRO_TIPS = [
   'Ensure good lighting when taking photos of handwritten notes for better OCR accuracy.',
   'You can upload multiple files at once. The AI will group them automatically based on content.',
   'Tag your images before uploading to force them into specific project folders.',
 ]
 
-export default function UploadSection({ files, error, onFilesSelected, onClear, onSort }) {
+export default function UploadSection({ files, error, onFilesSelected, onClear, onSort, targetCollection }) {
   const fileInputRef = useRef(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const [validationError, setValidationError] = useState(null)
+  const [recentNotes] = useState(loadRecentNotes)
 
   const processIncoming = useCallback((fileList) => {
     const { valid, errors } = validateFiles(Array.from(fileList))
@@ -64,6 +76,30 @@ export default function UploadSection({ files, error, onFilesSelected, onClear, 
         <h1 className="text-3xl font-extrabold text-app-text mb-1">Upload Your Notes</h1>
         <p className="text-app-text-sec">Instantly organize your handwritten or digital study materials with AI-powered sorting.</p>
       </div>
+
+      {/* ── Collection context banner ──────────────────────── */}
+      {targetCollection && (
+        <div className="flex items-center gap-4 px-5 py-4 rounded-2xl border mb-6 shadow-card"
+          style={{ background: `${targetCollection.color}12`, borderColor: `${targetCollection.color}40` }}>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm"
+            style={{ background: targetCollection.color }}>
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-app-text">
+              Adding notes to&nbsp;
+              <span style={{ color: targetCollection.color }}>"{targetCollection.name}"</span>
+            </p>
+            <p className="text-xs text-app-text-sec mt-0.5">
+              Upload images below — they'll be saved directly into this collection after sorting.
+            </p>
+          </div>
+          <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: targetCollection.color }} />
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-[1fr_340px] gap-6">
 
@@ -216,24 +252,39 @@ export default function UploadSection({ files, error, onFilesSelected, onClear, 
           {/* Recent Uploads */}
           <div className="bg-white rounded-2xl border border-app-border shadow-card p-5">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-app-text">Recent Uploads</h3>
-              <span className="text-xs text-app-accent font-semibold hover:underline cursor-pointer">View All</span>
+              <h3 className="text-sm font-bold text-app-text">Recent Notes</h3>
+              <span className="text-xs text-app-text-muted">{recentNotes.length} saved</span>
             </div>
-            <div className="flex flex-col gap-3">
-              {RECENT_UPLOADS.map(({ name, status }) => (
-                <div key={name} className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-app-bg rounded-xl border border-app-border flex-shrink-0 flex items-center justify-center">
-                    <svg className="w-5 h-5 text-app-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01" />
-                    </svg>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-app-text truncate">{name}</p>
-                    <p className={`text-xs truncate ${status === 'Processing…' ? 'text-app-warning' : 'text-app-text-muted'}`}>{status}</p>
-                  </div>
+            {recentNotes.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-6 text-center">
+                <div className="w-10 h-10 bg-app-bg rounded-xl border border-app-border flex items-center justify-center mb-2">
+                  <svg className="w-5 h-5 text-app-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
                 </div>
-              ))}
-            </div>
+                <p className="text-xs text-app-text-muted">No notes yet — your sorted notes will appear here.</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {recentNotes.map(({ name, status, color }, i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl border border-app-border flex-shrink-0 flex items-center justify-center"
+                      style={{ background: `${color}15` }}>
+                      <svg className="w-5 h-5" style={{ color }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-app-text truncate">{name}</p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: color }} />
+                        <p className="text-xs text-app-text-muted truncate">{status}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Pro Tips */}
