@@ -7,6 +7,8 @@ import Footer from './components/Footer.jsx'
 import UploadSection from './components/UploadSection.jsx'
 import ProcessingSection from './components/ProcessingSection.jsx'
 import ResultsSection from './components/ResultsSection.jsx'
+import RegisterPage from './components/RegisterPage.jsx'
+import SignInPage from './components/SignInPage.jsx'
 import Toast from './components/Toast.jsx'
 import { uploadImages, processImagesWithProgress, getExportUrl } from './api.js'
 
@@ -27,6 +29,9 @@ export default function App() {
   const [ocrProgress, setOcrProgress] = useState({ done: 0, total: 0 })
   const [error, setError]             = useState(null)
   const [toast, setToast]             = useState(null)
+  const [currentUser, setCurrentUser] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('user_session') || 'null') } catch { return null }
+  })
   // Which collection "Add Notes" was clicked from (null = not from a collection)
   const [targetCollection, setTargetCollection] = useState(null) // { id, name }
   const phaseTimerRef = useRef(null)
@@ -151,10 +156,44 @@ export default function App() {
   }, [])
 
   /* ── Render ─────────────────────────────────────────────── */
+  if (step === 'register') {
+    return <RegisterPage
+      onGoToSignIn={() => setStep('signin')}
+      onRegister={(user) => {
+        setCurrentUser(user)
+        localStorage.setItem('user_session', JSON.stringify(user))
+        showToast(`👋 Welcome, ${user.name}!`)
+        setStep('landing')
+      }}
+    />
+  }
+
+  if (step === 'signin') {
+    return <SignInPage
+      onGoToRegister={() => setStep('register')}
+      onSignIn={(user) => {
+        setCurrentUser(user)
+        localStorage.setItem('user_session', JSON.stringify(user))
+        showToast(`👋 Welcome back, ${user.name}!`)
+        setStep('landing')
+      }}
+    />
+  }
+
   if (step === 'landing') {
     return (
       <>
-        <LandingPage onGetStarted={handleGetStarted} />
+        <LandingPage
+          onGetStarted={handleGetStarted}
+          onGoToSignIn={() => setStep('signin')}
+          onGoToRegister={() => setStep('register')}
+          currentUser={currentUser}
+          onSignOut={() => {
+            setCurrentUser(null)
+            localStorage.removeItem('user_session')
+            showToast('Signed out successfully.')
+          }}
+        />
         {toast && <Toast message={toast} />}
       </>
     )

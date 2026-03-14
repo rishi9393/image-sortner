@@ -1,7 +1,50 @@
 import { useState } from 'react'
 
-export default function LandingPage({ onGetStarted }) {
+export default function LandingPage({ onGetStarted, onGoToSignIn, onGoToRegister, currentUser, onSignOut }) {
   const [showBanner, setShowBanner] = useState(true)
+  const [importModal, setImportModal] = useState(null) // 'whatsapp' | 'telegram' | null
+
+  const IMPORT_GUIDES = {
+    whatsapp: {
+      title: 'Import from WhatsApp',
+      color: '#25D366',
+      lightColor: '#f0fdf4',
+      borderColor: '#bbf7d0',
+      emoji: '💬',
+      steps: [
+        { step: '01', text: 'Open WhatsApp and go to the chat that contains your note photos.' },
+        { step: '02', text: 'Tap the attachment icon → select the photos you want to sort.' },
+        { step: '03', text: 'Save them to your device\'s camera roll or Downloads folder.' },
+        { step: '04', text: 'Come back here and upload those saved photos using the upload zone.' },
+      ],
+      tip: 'You can also use WhatsApp Web → right-click any image → Save As to bulk-save faster.',
+    },
+    telegram: {
+      title: 'Import from Telegram',
+      color: '#229ED9',
+      lightColor: '#eff6ff',
+      borderColor: '#bfdbfe',
+      emoji: '✈️',
+      steps: [
+        { step: '01', text: 'Open Telegram and navigate to the chat with your note images.' },
+        { step: '02', text: 'Long-press a photo → select multiple → tap the download icon.' },
+        { step: '03', text: 'Or forward them to your "Saved Messages" for easy access.' },
+        { step: '04', text: 'Come back here and upload those downloaded photos to start sorting.' },
+      ],
+      tip: 'Telegram Desktop lets you select all media in a chat at once — the fastest way to bulk-export.',
+    },
+  }
+
+  const guide = importModal ? IMPORT_GUIDES[importModal] : null
+
+  const totalNotes = (() => {
+    try {
+      const cols = JSON.parse(localStorage.getItem('collections') || '[]').filter(c => !c.trashed)
+      const inCollections = cols.reduce((sum, c) => sum + (c.notesList?.length || 0), 0)
+      const uncategorized = JSON.parse(localStorage.getItem('uncategorized_notes') || '[]').length
+      return inCollections + uncategorized
+    } catch { return 0 }
+  })()
   return (
     <div className="min-h-screen bg-white font-sans">
 
@@ -43,13 +86,32 @@ export default function LandingPage({ onGetStarted }) {
             <a href="#pricing"    className="text-sm text-app-text-sec hover:text-app-text transition-colors">Pricing</a>
           </div>
 
-          <button
-            onClick={onGetStarted}
-            className="px-5 py-2 bg-app-accent text-white text-sm font-semibold rounded-full
-                       hover:bg-app-accent-h transition-colors shadow-blue cursor-pointer"
-          >
-            Get Started
-          </button>
+          {currentUser ? (
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-app-bg border border-app-border">
+                <div className="w-6 h-6 rounded-full bg-app-accent flex items-center justify-center text-white text-[10px] font-bold">
+                  {currentUser.name?.charAt(0).toUpperCase()}
+                </div>
+                <span className="text-sm font-medium text-app-text">{currentUser.name.split(' ')[0]}</span>
+              </div>
+              <button onClick={onSignOut}
+                className="text-sm font-medium text-app-text-sec hover:text-app-text transition-colors cursor-pointer">
+                Sign Out
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button onClick={onGoToSignIn}
+                className="px-4 py-2 text-sm font-semibold text-app-text hover:text-app-accent transition-colors cursor-pointer">
+                Sign In
+              </button>
+              <button onClick={onGoToRegister}
+                className="px-5 py-2 bg-app-accent text-white text-sm font-semibold rounded-full
+                           hover:bg-app-accent-h transition-colors shadow-blue cursor-pointer">
+                Get Started
+              </button>
+            </div>
+          )}
         </div>
       </nav>
 
@@ -128,11 +190,11 @@ export default function LandingPage({ onGetStarted }) {
           </div>
 
           <div className="flex gap-3">
-            <button className="flex-1 flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-xl border border-app-border bg-white text-sm font-medium text-app-text hover:border-green-400 hover:bg-green-50 transition-colors shadow-card">
+            <button onClick={() => setImportModal('whatsapp')} className="flex-1 flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-xl border border-app-border bg-white text-sm font-medium text-app-text hover:border-green-400 hover:bg-green-50 transition-colors shadow-card cursor-pointer">
               <span className="text-green-500 text-base">💬</span>
               WhatsApp
             </button>
-            <button className="flex-1 flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-xl border border-app-border bg-white text-sm font-medium text-app-text hover:border-blue-400 hover:bg-blue-50 transition-colors shadow-card">
+            <button onClick={() => setImportModal('telegram')} className="flex-1 flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-xl border border-app-border bg-white text-sm font-medium text-app-text hover:border-blue-400 hover:bg-blue-50 transition-colors shadow-card cursor-pointer">
               <span className="text-blue-500 text-base">✈️</span>
               Telegram
             </button>
@@ -191,7 +253,9 @@ export default function LandingPage({ onGetStarted }) {
             </div>
             <div>
               <p className="text-xs font-bold text-app-success uppercase tracking-wide">Process Complete</p>
-              <p className="text-sm font-semibold text-app-text">42 notes organized</p>
+              <p className="text-sm font-semibold text-app-text">
+                {totalNotes > 0 ? `${totalNotes} note${totalNotes !== 1 ? 's' : ''} organized` : 'Ready to organize'}
+              </p>
             </div>
           </div>
         </div>
@@ -452,6 +516,66 @@ export default function LandingPage({ onGetStarted }) {
           </div>
         </div>
       </footer>
+
+      {/* ── Import Guide Modal ───────────────────────────────── */}
+      {importModal && guide && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          onClick={() => setImportModal(null)}>
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+          {/* Card */}
+          <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-md p-7 z-10"
+            onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-xl flex-shrink-0"
+                style={{ background: guide.lightColor, border: `1.5px solid ${guide.borderColor}` }}>
+                {guide.emoji}
+              </div>
+              <div className="flex-1">
+                <h2 className="text-lg font-extrabold text-app-text">{guide.title}</h2>
+                <p className="text-xs text-app-text-sec mt-0.5">Follow these steps to get your photos here</p>
+              </div>
+              <button onClick={() => setImportModal(null)}
+                className="w-8 h-8 rounded-full bg-app-bg border border-app-border flex items-center justify-center hover:bg-app-border transition-colors cursor-pointer flex-shrink-0">
+                <svg className="w-4 h-4 text-app-text-sec" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Steps */}
+            <div className="flex flex-col gap-4 mb-5">
+              {guide.steps.map(({ step, text }) => (
+                <div key={step} className="flex gap-3 items-start">
+                  <span className="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-extrabold flex-shrink-0 mt-0.5"
+                    style={{ background: guide.lightColor, color: guide.color, border: `1.5px solid ${guide.borderColor}` }}>
+                    {step}
+                  </span>
+                  <p className="text-sm text-app-text-sec leading-relaxed pt-1">{text}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Tip */}
+            <div className="flex gap-2.5 px-4 py-3 rounded-xl mb-6"
+              style={{ background: guide.lightColor, border: `1px solid ${guide.borderColor}` }}>
+              <svg className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: guide.color }} fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
+              </svg>
+              <p className="text-xs leading-relaxed" style={{ color: guide.color }}><strong>Tip:</strong> {guide.tip}</p>
+            </div>
+
+            {/* CTA */}
+            <button
+              onClick={() => { setImportModal(null); onGetStarted() }}
+              className="w-full py-3 rounded-xl text-white text-sm font-bold transition-opacity hover:opacity-90 cursor-pointer"
+              style={{ background: guide.color }}>
+              I've saved my photos — Start uploading →
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   )
