@@ -87,18 +87,38 @@ function removeNoteFromStorage(noteId) {
 }
 
 function doAssignToCollection(noteId, targetColId) {
+  doAssignManyToCollection([noteId], targetColId)
+}
+
+// Works for ANY notes — uncategorized OR already in another collection
+function doAssignManyToCollection(noteIds, targetColId) {
   try {
+    const idSet = new Set(noteIds)
+
+    // Remove from uncategorized
     const unc = JSON.parse(localStorage.getItem('uncategorized_notes') || '[]')
-    const note = unc.find(n => n.id === noteId)
-    if (!note) return
+    const fromUnc = unc.filter(n => idSet.has(n.id))
+    localStorage.setItem('uncategorized_notes', JSON.stringify(unc.filter(n => !idSet.has(n.id))))
 
-    const { collectionId, collectionName, collectionColor, ...cleanNote } = note
-    localStorage.setItem('uncategorized_notes', JSON.stringify(unc.filter(n => n.id !== noteId)))
-
+    // Remove from every other collection, collect the notes
     const cols = JSON.parse(localStorage.getItem('collections') || '[]')
+    let fromCols = []
+    const strippedCols = cols.map(c => {
+      if (c.id === targetColId) return c  // don't touch target yet
+      const moving = (c.notesList || []).filter(n => idSet.has(n.id))
+      if (moving.length) fromCols = [...fromCols, ...moving]
+      return { ...c, notesList: (c.notesList || []).filter(n => !idSet.has(n.id)) }
+    })
+
+    // Strip display-only fields before saving into collection
+    const toAdd = [...fromUnc, ...fromCols].map(
+      ({ collectionId, collectionName, collectionColor, ...clean }) => clean
+    )
+
+    // Append to target
     localStorage.setItem('collections', JSON.stringify(
-      cols.map(c => c.id === targetColId
-        ? { ...c, notesList: [...(c.notesList || []), cleanNote], lastUpdated: 'just now' }
+      strippedCols.map(c => c.id === targetColId
+        ? { ...c, notesList: [...(c.notesList || []), ...toAdd], lastUpdated: 'just now' }
         : c
       )
     ))
@@ -360,16 +380,29 @@ function NoteRow({ note, selected, isTrashed, collections, onToggleSelect, onTog
 export default function MyNotesPage({ onGoHome, onGoToUpload }) {
   const [notes,        setNotes]       = useState(loadNotes)
   const [collections,  setCollections] = useState(loadCollections)
-  const [activeView,   setActiveView]  = useState('all')   // 'all' | 'favorites' | 'trash' | colId | 'uncategorized'
+  const [activeView,   setActiveView]  = useState('all')
   const [search,       setSearch]      = useState('')
   const [viewMode,     setViewMode]    = useState('grid')
   const [selected,     setSelected]    = useState(new Set())
+  const [showBulkAssign, setShowBulkAssign] = useState(false)
+  const bulkAssignRef = useRef()
 
   /* ── Reload from localStorage when page becomes active ─────────────────── */
   useEffect(() => {
     setNotes(loadNotes())
     setCollections(loadCollections())
   }, [])
+
+  /* ── Close bulk-assign popover on outside click ──────────────────────── */
+  useEffect(() => {
+    if (!showBulkAssign) return
+    const handler = (e) => {
+      if (bulkAssignRef.current && !bulkAssignRef.current.contains(e.target))
+        setShowBulkAssign(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showBulkAssign])
 
   /* ── Counts ─────────────────────────────────────────────────────────────── */
   const totalCount        = useMemo(() => notes.filter(n => !n.trashed).length, [notes])
@@ -474,6 +507,18 @@ export default function MyNotesPage({ onGoHome, onGoToUpload }) {
         : n
     ))
   }, [collections])
+
+  const bulkAssignToCollection = useCallback((colId) => {
+    doAssignManyToCollection([...selected], colId)
+    const col = collections.find(c => c.id === colId)
+    setNotes(prev => prev.map(n =>
+      selected.has(n.id)
+        ? { ...n, collectionId: colId, collectionName: col?.name || '', collectionColor: col?.color || '#666' }
+        : n
+    ))
+    setSelected(new Set())
+    setShowBulkAssign(false)
+  }, [selected, collections])
 
   /* ── Selection ───────────────────────────────────────────────────────────── */
   const toggleSelect   = useCallback(id => setSelected(p => { const s = new Set(p); s.has(id) ? s.delete(id) : s.add(id); return s }), [])
@@ -775,6 +820,43 @@ export default function MyNotesPage({ onGoHome, onGoToUpload }) {
                 </>
               ) : (
                 <>
+                  {/* Add to Collection */}
+                  <div className="relative" ref={bulkAssignRef}>
+                    <button
+                      onClick={() => setShowBulkAssign(v => !v)}
+                      disabled={selected.size === 0}
+                      className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[13px] font-semibold transition-colors
+                        ${selected.size > 0 ? 'text-blue-400 hover:bg-blue-900/30 cursor-pointer' : 'text-gray-600 cursor-default'}`}>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+                      </svg>
+                      Add to Collection
+                    </button>
+
+                    {/* Upward popover */}
+                    {showBulkAssign && selected.size > 0 && (
+                      <div className="absolute bottom-full mb-2 left-0 bg-white rounded-2xl shadow-2xl border border-gray-100 py-2 w-56 z-50 overflow-hidden">
+                        <p className="px-4 pt-1 pb-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-100">
+                          Move {selected.size} note{selected.size !== 1 ? 's' : ''} to…
+                        </p>
+                        {collections.length === 0 ? (
+                          <p className="px-4 py-3 text-[12px] text-gray-400 italic">No collections yet</p>
+                        ) : (
+                          collections.map(col => (
+                            <button key={col.id} onClick={() => bulkAssignToCollection(col.id)}
+                              className="flex items-center gap-3 w-full px-4 py-2.5 text-[13px] text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors cursor-pointer">
+                              <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: col.color }} />
+                              <span className="truncate font-medium">{col.name}</span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="w-px h-5 bg-gray-700 mx-1" />
+
+                  {/* Delete */}
                   <button onClick={() => moveToTrash(selected)} disabled={selected.size === 0}
                     className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[13px] font-semibold transition-colors
                       ${selected.size > 0 ? 'text-red-400 hover:bg-red-900/30 cursor-pointer' : 'text-gray-600 cursor-default'}`}>
