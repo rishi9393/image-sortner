@@ -52,6 +52,10 @@ export default function App() {
     setError(null)
   }, [])
 
+  const handleRemoveFile = useCallback((index) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index))
+  }, [])
+
   /* ── Get Started ────────────────────────────────────────── */
   const handleGetStarted = useCallback(() => {
     setStep('upload')
@@ -199,6 +203,7 @@ export default function App() {
             error={error}
             onFilesSelected={handleFilesSelected}
             onClear={handleClear}
+            onRemoveFile={handleRemoveFile}
             onSort={handleSort}
             targetCollection={targetCollection}
           />

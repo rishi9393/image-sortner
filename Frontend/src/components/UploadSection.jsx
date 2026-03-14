@@ -13,7 +13,6 @@ function loadRecentNotes() {
         all.push({ name: note.title, status: `In "${col.name}"`, color: col.color })
       })
     })
-    // newest first (ids are Date.now()-based), take last 4
     return all.slice(-4).reverse()
   } catch {
     return []
@@ -47,9 +46,9 @@ const PRO_TIPS = [
   'Tag your images before uploading to force them into specific project folders.',
 ]
 
-export default function UploadSection({ files, error, onFilesSelected, onClear, onSort, targetCollection }) {
+export default function UploadSection({ files, error, onFilesSelected, onClear, onRemoveFile, onSort, targetCollection }) {
   const fileInputRef = useRef(null)
-  const [isDragOver, setIsDragOver] = useState(false)
+  const [isDragOver, setIsDragOver]     = useState(false)
   const [validationError, setValidationError] = useState(null)
   const [recentNotes] = useState(loadRecentNotes)
 
@@ -60,24 +59,26 @@ export default function UploadSection({ files, error, onFilesSelected, onClear, 
     if (valid.length) onFilesSelected(valid)
   }, [onFilesSelected])
 
-  const onDragOver  = (e) => { e.preventDefault(); setIsDragOver(true) }
-  const onDragLeave = ()  => setIsDragOver(false)
-  const onDrop      = (e) => { e.preventDefault(); setIsDragOver(false); processIncoming(e.dataTransfer.files) }
+  const onDragOver   = (e) => { e.preventDefault(); setIsDragOver(true) }
+  const onDragLeave  = ()  => setIsDragOver(false)
+  const onDrop       = (e) => { e.preventDefault(); setIsDragOver(false); processIncoming(e.dataTransfer.files) }
   const onFileChange = (e) => { processIncoming(e.target.files); e.target.value = '' }
-  const onZoneClick  = () => fileInputRef.current?.click()
+  const onZoneClick  = ()  => fileInputRef.current?.click()
 
   const displayError = validationError || error
-  const hasFiles = files.length > 0
+  const hasFiles     = files.length > 0
+  const totalBytes   = files.reduce((sum, f) => sum + f.size, 0)
 
   return (
     <section className="animate-fade-up">
-      {/* Page heading */}
+
+      {/* ── Page heading ─────────────────────────────────── */}
       <div className="mb-7">
         <h1 className="text-3xl font-extrabold text-app-text mb-1">Upload Your Notes</h1>
         <p className="text-app-text-sec">Instantly organize your handwritten or digital study materials with AI-powered sorting.</p>
       </div>
 
-      {/* ── Collection context banner ──────────────────────── */}
+      {/* ── Collection context banner ─────────────────────── */}
       {targetCollection && (
         <div className="flex items-center gap-4 px-5 py-4 rounded-2xl border mb-6 shadow-card"
           style={{ background: `${targetCollection.color}12`, borderColor: `${targetCollection.color}40` }}>
@@ -103,11 +104,11 @@ export default function UploadSection({ files, error, onFilesSelected, onClear, 
 
       <div className="grid lg:grid-cols-[1fr_340px] gap-6">
 
-        {/* ── Left: Upload zone ──────────────────────────── */}
+        {/* ── Left column ──────────────────────────────────── */}
         <div className="flex flex-col gap-4">
-          <div className="bg-white rounded-2xl border border-app-border shadow-card p-6">
 
-            {/* Drop zone */}
+          {/* Drop zone card */}
+          <div className="bg-white rounded-2xl border border-app-border shadow-card p-6">
             <div
               role="button"
               tabIndex={0}
@@ -124,26 +125,31 @@ export default function UploadSection({ files, error, onFilesSelected, onClear, 
                   : 'border-app-border hover:border-app-accent hover:bg-app-accent-light/20'}
               `}
             >
-              {/* Icons */}
-              <div className="flex justify-center gap-3 mb-5">
-                <div className="w-14 h-14 bg-app-accent-light rounded-2xl flex items-center justify-center shadow-card">
-                  <svg className="w-7 h-7 text-app-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <div className="w-14 h-14 bg-red-50 rounded-2xl flex items-center justify-center shadow-card">
-                  <svg className="w-7 h-7 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+              {/* Single centered icon */}
+              <div className="flex justify-center mb-5">
+                <div className="w-16 h-16 bg-app-accent-light rounded-2xl flex items-center justify-center shadow-card">
+                  <svg className="w-8 h-8 text-app-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8}
+                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
                 </div>
               </div>
 
               <p className="text-base font-bold text-app-text mb-1.5">
-                Drag your notes here to start sorting
+                {isDragOver ? 'Drop your files here' : 'Drag your notes here to start sorting'}
               </p>
-              <p className="text-app-text-sec text-sm mb-6">
-                We support JPG, PNG, and HEIC formats. High resolution images work best for handwritten notes.
+              <p className="text-app-text-sec text-sm mb-4">
+                JPG, PNG, and WEBP supported · Max {MAX_SIZE_MB}MB per file
               </p>
+
+              {/* Format pills */}
+              <div className="flex justify-center gap-2 mb-6">
+                {['JPG', 'PNG', 'WEBP'].map(fmt => (
+                  <span key={fmt} className="px-2.5 py-1 rounded-full bg-app-bg border border-app-border text-xs font-semibold text-app-text-sec">
+                    {fmt}
+                  </span>
+                ))}
+              </div>
 
               <button
                 type="button"
@@ -152,14 +158,10 @@ export default function UploadSection({ files, error, onFilesSelected, onClear, 
                            rounded-full hover:bg-app-accent-h transition-colors shadow-blue cursor-pointer"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                 </svg>
                 Select Files
               </button>
-
-              <p className="mt-3 text-xs text-app-text-muted">
-                or <span className="text-app-accent font-medium hover:underline cursor-pointer">link Google Drive</span>
-              </p>
 
               <input
                 ref={fileInputRef}
@@ -174,10 +176,10 @@ export default function UploadSection({ files, error, onFilesSelected, onClear, 
             {/* Trust badges */}
             <div className="flex items-center justify-center gap-6 mt-5 pt-5 border-t border-app-border">
               {[
-                { icon: '✓', label: 'SECURE UPLOAD' },
-                { icon: '✓', label: 'AUTO-OCR' },
-                { icon: '✓', label: `${MAX_SIZE_MB}MB MAX` },
-              ].map(({ icon, label }) => (
+                { label: 'SECURE UPLOAD' },
+                { label: 'AUTO-OCR' },
+                { label: `${MAX_SIZE_MB}MB MAX` },
+              ].map(({ label }) => (
                 <div key={label} className="flex items-center gap-1.5 text-xs font-semibold text-app-text-sec uppercase tracking-wide">
                   <svg className="w-3.5 h-3.5 text-app-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
@@ -188,10 +190,12 @@ export default function UploadSection({ files, error, onFilesSelected, onClear, 
             </div>
           </div>
 
-          {/* File list */}
+          {/* ── Image grid + actions ─────────────────────── */}
           {hasFiles && (
             <div className="bg-white rounded-2xl border border-app-border shadow-card p-5">
-              <div className="flex justify-between items-center mb-3">
+
+              {/* Header row */}
+              <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-app-text">
                   Selected Files
                   <span className="ml-2 px-2 py-0.5 bg-app-accent-light text-app-accent text-xs font-bold rounded-full">
@@ -200,18 +204,21 @@ export default function UploadSection({ files, error, onFilesSelected, onClear, 
                 </h3>
                 <span className="text-xs text-app-text-muted">{files.length}/{MAX_FILES} max</span>
               </div>
-              <div className="flex flex-col gap-2 max-h-52 overflow-y-auto">
+
+              {/* Thumbnail grid */}
+              <div className="grid grid-cols-3 gap-3 max-h-72 overflow-y-auto pr-1">
                 {files.map((file, i) => (
-                  <FileItem key={`${file.name}-${i}`} file={file} index={i} />
+                  <GridThumb key={`${file.name}-${i}`} file={file} index={i} onRemove={onRemoveFile} />
                 ))}
               </div>
+
+              {/* Action row */}
               <div className="flex gap-3 justify-end mt-4 pt-4 border-t border-app-border">
                 <button
                   onClick={onClear}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium
                              bg-white text-app-text-sec border border-app-border
-                             hover:bg-app-bg hover:text-app-text hover:border-app-border-hover
-                             transition-colors cursor-pointer"
+                             hover:bg-app-bg hover:text-app-text transition-colors cursor-pointer"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -246,10 +253,10 @@ export default function UploadSection({ files, error, onFilesSelected, onClear, 
           )}
         </div>
 
-        {/* ── Right: Sidebar ─────────────────────────────── */}
+        {/* ── Right sidebar ────────────────────────────────── */}
         <div className="flex flex-col gap-4">
 
-          {/* Recent Uploads */}
+          {/* Recent Notes */}
           <div className="bg-white rounded-2xl border border-app-border shadow-card p-5">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-bold text-app-text">Recent Notes</h3>
@@ -311,17 +318,33 @@ export default function UploadSection({ files, error, onFilesSelected, onClear, 
   )
 }
 
-function FileItem({ file }) {
+function GridThumb({ file, index, onRemove }) {
   const [thumb] = useState(() => URL.createObjectURL(file))
   return (
-    <div className="flex items-center gap-3 bg-app-bg border border-app-border rounded-xl px-3 py-2 text-sm">
+    <div className="relative group rounded-xl overflow-hidden border border-app-border bg-app-bg aspect-square">
+      {/* Thumbnail */}
       <img
         src={thumb}
         alt={file.name}
-        className="w-9 h-9 object-cover rounded-lg flex-shrink-0 bg-app-border"
+        className="w-full h-full object-cover"
       />
-      <span className="flex-1 text-app-text text-sm truncate">{file.name}</span>
-      <span className="text-app-text-muted text-xs flex-shrink-0">{formatBytes(file.size)}</span>
+      {/* Hover overlay with filename + size */}
+      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-2">
+        <p className="text-white text-[10px] font-semibold truncate leading-tight">{file.name}</p>
+        <p className="text-white/70 text-[9px] mt-0.5">{formatBytes(file.size)}</p>
+      </div>
+      {/* Remove button */}
+      <button
+        type="button"
+        onClick={() => onRemove(index)}
+        className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 hover:bg-red-500
+                   flex items-center justify-center opacity-0 group-hover:opacity-100
+                   transition-all duration-150 cursor-pointer"
+      >
+        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
     </div>
   )
 }
