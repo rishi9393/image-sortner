@@ -18,7 +18,7 @@ const PROCESSING_STEPS = [
 ]
 
 export default function App() {
-  const [step, setStep]               = useState('landing')  // 'landing' | 'upload' | 'processing' | 'results' | 'notes' | 'collections'
+  const [step, setStep]               = useState('landing')
   const [files, setFiles]             = useState([])
   const [sessionId, setSessionId]     = useState(null)
   const [sortResults, setSortResults] = useState(null)
@@ -27,6 +27,8 @@ export default function App() {
   const [ocrProgress, setOcrProgress] = useState({ done: 0, total: 0 })
   const [error, setError]             = useState(null)
   const [toast, setToast]             = useState(null)
+  // Which collection "Add Notes" was clicked from (null = not from a collection)
+  const [targetCollection, setTargetCollection] = useState(null) // { id, name }
   const phaseTimerRef = useRef(null)
 
   /* ── Toast ─────────────────────────────────────────────── */
@@ -50,7 +52,7 @@ export default function App() {
     setError(null)
   }, [])
 
-  /* ── Get Started (landing → upload) ────────────────────── */
+  /* ── Get Started ────────────────────────────────────────── */
   const handleGetStarted = useCallback(() => {
     setStep('upload')
   }, [])
@@ -58,39 +60,26 @@ export default function App() {
   /* ── Sort ───────────────────────────────────────────────── */
   const handleSort = useCallback(async () => {
     if (files.length === 0) return
-
     if (phaseTimerRef.current) clearTimeout(phaseTimerRef.current)
-
     setStep('processing')
     setPhase(0)
     setPhaseLabel('Uploading files…')
     setOcrProgress({ done: 0, total: 0 })
     setError(null)
-
     try {
       const uploadData = await uploadImages(files)
-
       const processData = await processImagesWithProgress(
         uploadData.sessionId,
-        ({ done, total }) => {
-          setOcrProgress({ done, total })
-          setPhase(1)
-        },
-        (newPhase, label) => {
-          setPhase(newPhase)
-          setPhaseLabel(label)
-        }
+        ({ done, total }) => { setOcrProgress({ done, total }); setPhase(1) },
+        (newPhase, label) => { setPhase(newPhase); setPhaseLabel(label) }
       )
-
       setPhase(4)
       setSessionId(uploadData.sessionId)
       setSortResults(processData)
-
       phaseTimerRef.current = setTimeout(() => {
         setStep('results')
         showToast(`✅ Sorted ${processData.images.length} images successfully!`)
       }, 400)
-
     } catch (err) {
       if (phaseTimerRef.current) clearTimeout(phaseTimerRef.current)
       setStep('upload')
@@ -108,6 +97,40 @@ export default function App() {
     showToast('📥 PDF download started!')
   }, [sessionId, showToast])
 
+  /* ── Save processed notes into a collection ─────────────── */
+  const handleSaveToCollection = useCallback((images) => {
+    if (!targetCollection) return
+    try {
+      const saved = localStorage.getItem('collections')
+      const cols  = saved ? JSON.parse(saved) : []
+      const now   = new Date()
+      const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+
+      // Build one note entry per image page
+      const newNotes = images.map((img, idx) => ({
+        id:    Date.now() + idx,
+        title: img.originalName
+          ? img.originalName.replace(/\.[^.]+$/, '')   // strip extension
+          : `Page ${idx + 1}`,
+        date: `Added ${dateStr}`,
+        tags: ['#sorted'],
+        img:  img.url || null,
+      }))
+
+      const updated = cols.map(c =>
+        c.id === targetCollection.id
+          ? { ...c, notesList: [...(c.notesList || []), ...newNotes], lastUpdated: 'just now' }
+          : c
+      )
+      localStorage.setItem('collections', JSON.stringify(updated))
+      showToast(`✅ ${newNotes.length} note${newNotes.length !== 1 ? 's' : ''} saved to "${targetCollection.name}"!`)
+    } catch (e) {
+      showToast('❌ Could not save to collection.')
+    }
+    setTargetCollection(null)
+    setStep('collections')
+  }, [targetCollection, showToast])
+
   /* ── Reset ──────────────────────────────────────────────── */
   const handleSortAgain = useCallback(() => {
     setStep('upload')
@@ -120,8 +143,6 @@ export default function App() {
   }, [])
 
   /* ── Render ─────────────────────────────────────────────── */
-
-  // Landing page is a standalone full-page (own nav + footer)
   if (step === 'landing') {
     return (
       <>
@@ -131,7 +152,6 @@ export default function App() {
     )
   }
 
-  // My Notes page — own sidebar layout
   if (step === 'notes') {
     return (
       <>
@@ -144,28 +164,29 @@ export default function App() {
     )
   }
 
-  // Collections page — own sidebar layout
   if (step === 'collections') {
     return (
       <>
         <CollectionsPage
           onGoHome={() => setStep('landing')}
           onGoToNotes={() => setStep('notes')}
-          onGoToUpload={() => setStep('upload')}
+          onGoToUpload={(colId, colName) => {
+            setTargetCollection(colId ? { id: colId, name: colName } : null)
+            setStep('upload')
+          }}
         />
         {toast && <Toast message={toast} />}
       </>
     )
   }
 
-  // App shell (upload / processing / results)
   return (
     <div className="min-h-screen bg-app-bg text-app-text font-sans flex flex-col">
       <Header
-          onLogoClick={() => setStep('landing')}
-          onNavigate={(key) => setStep(key)}
-          activeStep={step}
-        />
+        onLogoClick={() => setStep('landing')}
+        onNavigate={(key) => setStep(key)}
+        activeStep={step}
+      />
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-6 py-8">
         {step === 'upload' && (
@@ -192,12 +213,13 @@ export default function App() {
             sortResults={sortResults}
             onDownloadPDF={handleDownloadPDF}
             onSortAgain={handleSortAgain}
+            targetCollection={targetCollection}
+            onSaveToCollection={handleSaveToCollection}
           />
         )}
       </main>
 
       <Footer />
-
       {toast && <Toast message={toast} />}
     </div>
   )

@@ -129,7 +129,7 @@ function ReorderList({ images, onReorder, onRemove, onOpenLightbox }) {
 }
 
 /* ── Main component ─────────────────────────────────────────────────────────── */
-export default function ResultsSection({ sortResults, onDownloadPDF, onSortAgain }) {
+export default function ResultsSection({ sortResults, onDownloadPDF, onSortAgain, targetCollection, onSaveToCollection }) {
   const { sortMethod, sortMethodDescription } = sortResults
 
   const [images,    setImages]    = useState(() => sortResults.images)
@@ -188,6 +188,39 @@ export default function ResultsSection({ sortResults, onDownloadPDF, onSortAgain
 
   return (
     <section className="animate-fade-up">
+
+      {/* ── Save to Collection banner ─────────────────────────────────────── */}
+      {targetCollection && (
+        <div className="flex items-center justify-between gap-4 mb-5 px-5 py-4 bg-blue-50 border border-blue-200 rounded-2xl shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-[13px] font-bold text-gray-900">
+                Adding to <span className="text-blue-600">"{targetCollection.name}"</span>
+              </p>
+              <p className="text-[11px] text-gray-500">
+                {images.length} page{images.length !== 1 ? 's' : ''} will be saved as notes in this collection.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => onSaveToCollection(images)}
+            disabled={images.length === 0}
+            className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-[13px] font-bold
+                       rounded-full shadow transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+            </svg>
+            Save to Collection
+          </button>
+        </div>
+      )}
 
       {/* ── Top bar ──────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-4">
