@@ -194,6 +194,23 @@ export default function UploadSection({ files, error, onFilesSelected, onClear, 
           {hasFiles && (
             <div className="bg-white rounded-2xl border border-app-border shadow-card p-5">
 
+              {/* Batch summary */}
+              <div className="flex items-center gap-2 mb-4 px-3 py-2.5 rounded-xl bg-app-bg border border-app-border">
+                <svg className="w-4 h-4 text-app-accent flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <span className="text-sm text-app-text font-semibold">{files.length} {files.length === 1 ? 'file' : 'files'}</span>
+                <span className="text-app-text-muted text-xs">·</span>
+                <span className="text-sm text-app-text-sec">{formatBytes(totalBytes)}</span>
+                <span className="text-app-text-muted text-xs">·</span>
+                <span className="flex items-center gap-1 text-xs font-semibold text-app-success">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Ready to sort
+                </span>
+              </div>
+
               {/* Header row */}
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-app-text">

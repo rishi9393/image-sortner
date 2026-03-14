@@ -795,6 +795,7 @@ export default function MyNotesPage({ onGoHome, onGoToUpload }) {
         </div>
 
         {/* ════ BOTTOM ACTION BAR ════ */}
+        {selected.size > 0 && (
         <div className="absolute bottom-0 left-[230px] right-0 pb-5 px-8 pointer-events-none">
           <div className="bg-gray-900 text-white rounded-2xl px-6 py-3.5 flex items-center gap-4 shadow-2xl pointer-events-auto">
             <span className="text-[13px] text-gray-400 font-medium flex-shrink-0">
@@ -874,6 +875,7 @@ export default function MyNotesPage({ onGoHome, onGoToUpload }) {
             )}
           </div>
         </div>
+        )}
 
       </div>
     </div>
