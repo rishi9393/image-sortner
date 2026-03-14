@@ -385,6 +385,7 @@ export default function MyNotesPage({ onGoHome, onGoToUpload }) {
   const [viewMode,     setViewMode]    = useState('grid')
   const [selected,     setSelected]    = useState(new Set())
   const [showBulkAssign, setShowBulkAssign] = useState(false)
+  const [sidebarOpen,    setSidebarOpen]    = useState(false)
   const bulkAssignRef = useRef()
 
   /* ── Reload from localStorage when page becomes active ─────────────────── */
@@ -536,7 +537,7 @@ export default function MyNotesPage({ onGoHome, onGoToUpload }) {
     <div className="flex h-screen overflow-hidden" style={{ background: '#f0f2f5', fontFamily: 'Inter,system-ui,sans-serif' }}>
 
       {/* ════════════════════ SIDEBAR ════════════════════ */}
-      <aside className="w-[230px] bg-white border-r border-gray-200 flex flex-col flex-shrink-0 h-screen">
+      <aside className={`${sidebarOpen ? 'w-[230px]' : 'w-0'} bg-white border-r border-gray-200 flex flex-col flex-shrink-0 h-screen overflow-hidden transition-[width] duration-200 ease-in-out`}>
 
         {/* Logo */}
         <div className="px-5 pt-5 pb-4">
@@ -641,7 +642,16 @@ export default function MyNotesPage({ onGoHome, onGoToUpload }) {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
         {/* Top bar */}
-        <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-4 flex-shrink-0">
+        <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3 flex-shrink-0">
+          {/* Sidebar toggle */}
+          <button
+            onClick={() => setSidebarOpen(v => !v)}
+            className="w-9 h-9 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center hover:bg-gray-200 transition-colors cursor-pointer flex-shrink-0"
+            title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}>
+            <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
           <div className="flex-1 relative">
             <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
               fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -796,7 +806,7 @@ export default function MyNotesPage({ onGoHome, onGoToUpload }) {
 
         {/* ════ BOTTOM ACTION BAR ════ */}
         {selected.size > 0 && (
-        <div className="absolute bottom-0 left-[230px] right-0 pb-5 px-8 pointer-events-none">
+        <div className={`absolute bottom-0 ${sidebarOpen ? 'left-[230px]' : 'left-0'} right-0 pb-5 px-8 pointer-events-none transition-all duration-200`}>
           <div className="bg-gray-900 text-white rounded-2xl px-6 py-3.5 flex items-center gap-4 shadow-2xl pointer-events-auto">
             <span className="text-[13px] text-gray-400 font-medium flex-shrink-0">
               Selected: <span className={`font-bold ${selected.size > 0 ? 'text-white' : 'text-gray-500'}`}>{selected.size}</span>

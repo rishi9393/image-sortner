@@ -82,6 +82,7 @@ const HeartIcon     = ({ filled }) => (
   </svg>
 )
 const RestoreIcon   = () => <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+const UserIcon      = () => <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
 
 /* ══════════════════════════════════════════════════════════════════════════════
    CREATE / EDIT MODAL
@@ -655,6 +656,302 @@ function EmptyState({ icon, title, subtitle, action }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
+   PROFILE VIEW
+   ══════════════════════════════════════════════════════════════════════════════ */
+function ProfileView({ collections }) {
+  const [user, setUser] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('user_session') || 'null') } catch { return null }
+  })
+  const [form, setForm] = useState({
+    name:        user?.name        || 'Alex Rivera',
+    email:       user?.email       || 'alex.rivera@smartnotes.ai',
+    institution: user?.institution || '',
+  })
+  const [saved, setSaved] = useState(false)
+
+  const totalNotes = collections.reduce((sum, c) => sum + (c.notesList?.length || 0), 0)
+  const initials   = (form.name || 'U').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
+
+  const handleSave = (e) => {
+    e.preventDefault()
+    try {
+      const updated = { ...(user || {}), name: form.name, email: form.email, institution: form.institution }
+      localStorage.setItem('user_session', JSON.stringify(updated))
+      setUser(updated)
+    } catch {}
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  return (
+    <div className="max-w-4xl">
+      {/* Page title */}
+      <div className="mb-7">
+        <h1 className="text-[32px] font-extrabold text-gray-900 leading-tight">Profile</h1>
+        <p className="text-[14px] text-gray-500 mt-1">Manage your account settings and preferences.</p>
+      </div>
+
+      {/* ── Row 1: Profile card + Pro Plan ── */}
+      <div className="grid grid-cols-3 gap-5 mb-5">
+
+        {/* Profile card */}
+        <div className="col-span-2 bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+          <div className="flex items-center gap-5">
+            {/* Avatar */}
+            <div className="relative flex-shrink-0">
+              <div className="w-20 h-20 rounded-full bg-blue-600 flex items-center justify-center text-white text-2xl font-bold shadow-md select-none">
+                {initials}
+              </div>
+              <div className="absolute bottom-0 right-0 w-7 h-7 bg-blue-600 rounded-full border-2 border-white flex items-center justify-center cursor-pointer hover:bg-blue-700 transition-colors">
+                <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </div>
+            </div>
+
+            {/* Name / email / buttons */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <h2 className="text-[22px] font-extrabold text-gray-900 truncate">{form.name}</h2>
+                <span className="px-2 py-0.5 bg-blue-50 text-blue-600 text-[11px] font-bold rounded-full border border-blue-200 uppercase tracking-wide flex-shrink-0">
+                  Pro Member
+                </span>
+              </div>
+              <p className="text-[14px] text-gray-500 mb-4 truncate">{form.email}</p>
+              <div className="flex items-center gap-3 flex-wrap">
+                <button className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-[13px] font-bold rounded-xl transition-colors cursor-pointer shadow-sm">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                  Edit Profile
+                </button>
+                <button className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-[13px] font-bold rounded-xl transition-colors cursor-pointer">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                  </svg>
+                  Share Profile
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Pro Plan card */}
+        <div className="bg-blue-600 rounded-2xl shadow-sm p-5 flex flex-col">
+          <div className="flex items-start justify-between mb-3">
+            <svg className="w-7 h-7 text-white opacity-90" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+            </svg>
+            <span className="px-2 py-0.5 bg-white/20 text-white text-[10px] font-bold rounded-full uppercase tracking-wide">Active</span>
+          </div>
+          <h3 className="text-[18px] font-extrabold text-white mb-3">Pro Plan</h3>
+          <ul className="flex flex-col gap-1.5 mb-4 flex-1">
+            {['Unlimited AI Summaries', '10GB Cloud Storage', 'Priority Support'].map(item => (
+              <li key={item} className="flex items-center gap-2 text-[12px] text-white/90">
+                <svg className="w-3.5 h-3.5 text-white flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+                {item}
+              </li>
+            ))}
+          </ul>
+          <button className="w-full py-2.5 bg-white hover:bg-gray-50 text-blue-600 text-[13px] font-bold rounded-xl transition-colors cursor-pointer">
+            Manage Subscription
+          </button>
+        </div>
+      </div>
+
+      {/* ── Row 2: Stats ── */}
+      <div className="grid grid-cols-3 gap-5 mb-5">
+
+        {/* Total Notes */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+          <div className="flex items-start justify-between mb-3">
+            <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
+              <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </div>
+            <span className="text-[12px] font-bold text-green-600 flex items-center gap-1">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+              </svg>
+              12%
+            </span>
+          </div>
+          <p className="text-[12px] text-gray-500 mb-1">Total Notes</p>
+          <p className="text-[28px] font-extrabold text-gray-900">{totalNotes.toLocaleString()}</p>
+        </div>
+
+        {/* Pages Processed */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+          <div className="flex items-start justify-between mb-3">
+            <div className="w-10 h-10 bg-green-50 rounded-xl flex items-center justify-center">
+              <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </div>
+            <span className="text-[12px] font-bold text-green-600 flex items-center gap-1">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+              </svg>
+              24%
+            </span>
+          </div>
+          <p className="text-[12px] text-gray-500 mb-1">Pages Processed</p>
+          <p className="text-[28px] font-extrabold text-gray-900">4,284</p>
+        </div>
+
+        {/* Storage Used */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+          <div className="flex items-start justify-between mb-3">
+            <div className="w-10 h-10 bg-orange-50 rounded-xl flex items-center justify-center">
+              <svg className="w-5 h-5 text-orange-500" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z"/>
+              </svg>
+            </div>
+            <span className="text-[12px] text-gray-400">42% Used</span>
+          </div>
+          <p className="text-[12px] text-gray-500 mb-1">Storage Used</p>
+          <p className="text-[26px] font-extrabold text-gray-900 leading-none">
+            4.2<span className="text-[16px] text-gray-400 font-semibold">GB</span>
+            <span className="text-[14px] text-gray-400 font-normal"> / 10GB</span>
+          </p>
+          <div className="mt-2.5 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+            <div className="h-full bg-orange-500 rounded-full" style={{ width: '42%' }} />
+          </div>
+        </div>
+      </div>
+
+      {/* ── Row 3: Personal Info + Security ── */}
+      <div className="grid grid-cols-2 gap-5">
+
+        {/* Personal Information */}
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+          <div className="flex items-center gap-2 mb-5">
+            <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+            <h3 className="text-[15px] font-bold text-gray-900">Personal Information</h3>
+          </div>
+          <form onSubmit={handleSave} className="flex flex-col gap-4">
+            <div>
+              <label className="block text-[12px] font-semibold text-blue-600 mb-1.5">Full Name</label>
+              <input
+                type="text"
+                value={form.name}
+                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-[14px] text-gray-900
+                           focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500
+                           placeholder-gray-300 transition-all"
+              />
+            </div>
+            <div>
+              <label className="block text-[12px] font-semibold text-blue-600 mb-1.5">Email Address</label>
+              <input
+                type="email"
+                value={form.email}
+                onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-[14px] text-gray-900
+                           focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500
+                           placeholder-gray-300 transition-all"
+              />
+            </div>
+            <div>
+              <label className="block text-[12px] font-semibold text-blue-600 mb-1.5">Preferred Institution</label>
+              <input
+                type="text"
+                value={form.institution}
+                onChange={e => setForm(f => ({ ...f, institution: e.target.value }))}
+                placeholder="e.g. Stanford University"
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-[14px] text-gray-900
+                           focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500
+                           placeholder-gray-300 transition-all"
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full py-3 bg-gray-900 hover:bg-gray-800 text-white text-[14px] font-bold rounded-xl transition-colors cursor-pointer mt-1">
+              {saved ? '✅ Saved!' : 'Save Changes'}
+            </button>
+          </form>
+        </div>
+
+        {/* Security + Privacy */}
+        <div className="flex flex-col gap-4">
+
+          {/* Security */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+            <div className="flex items-center gap-2 mb-5">
+              <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
+              <h3 className="text-[15px] font-bold text-gray-900">Security</h3>
+            </div>
+            <div className="flex flex-col gap-3">
+              {/* Password */}
+              <div className="flex items-center justify-between p-3.5 bg-gray-50 rounded-xl border border-gray-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-gray-200 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-[13px] font-bold text-gray-900">Password</p>
+                    <p className="text-[11px] text-gray-400">Last changed 3 months ago</p>
+                  </div>
+                </div>
+                <button className="text-[13px] font-bold text-blue-600 hover:text-blue-700 cursor-pointer transition-colors">Update</button>
+              </div>
+
+              {/* Two-Factor Auth */}
+              <div className="flex items-center justify-between p-3.5 bg-gray-50 rounded-xl border border-gray-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-gray-200 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-[13px] font-bold text-gray-900">Two-Factor Auth</p>
+                      <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+                    </div>
+                    <p className="text-[11px] text-gray-400">Currently Enabled</p>
+                  </div>
+                </div>
+                <button className="text-[13px] font-bold text-gray-600 hover:text-gray-900 cursor-pointer transition-colors">Disable</button>
+              </div>
+            </div>
+          </div>
+
+          {/* Privacy notice */}
+          <div className="bg-blue-50 rounded-2xl border border-blue-100 p-5">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-[13px] font-bold text-gray-900 mb-1">Privacy Focused</p>
+                <p className="text-[12px] text-gray-600 leading-relaxed">
+                  Your data is encrypted end-to-end. We use zero-knowledge architecture to ensure only you can access your notes.{' '}
+                  <span className="text-blue-600 font-semibold cursor-pointer hover:underline">Learn more about our security.</span>
+                </p>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
    MAIN PAGE
    ══════════════════════════════════════════════════════════════════════════════ */
 export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload }) {
@@ -670,7 +967,8 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
   const [modal,         setModal]        = useState(null)
   const [deleteTarget,  setDeleteTarget] = useState(null)   // { col, permanent }
   const [openCol,       setOpenCol]      = useState(null)
-  const [activeView,    setActiveView]   = useState('collections') // 'collections' | 'favorites' | 'trash'
+  const [activeView,    setActiveView]   = useState('collections')
+  const [sidebarOpen,   setSidebarOpen]  = useState(false) // 'collections' | 'favorites' | 'trash'
 
   /* ── Persist to localStorage ──────────────────────────────────────────────── */
   useEffect(() => {
@@ -739,23 +1037,25 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
 
   /* ── Nav items (Settings removed) ─────────────────────────────────────────── */
   const NAV = [
-    { key: 'notes',       label: 'My Notes',    icon: <MyNotesIcon />,                           onClick: onGoToNotes },
+    { key: 'notes',       label: 'My Notes',    icon: <MyNotesIcon />,                                    onClick: onGoToNotes },
     { key: 'collections', label: 'Collections', icon: <CollectIcon active={activeView === 'collections'} />, onClick: () => { setActiveView('collections'); setOpenCol(null) } },
     { key: 'favorites',   label: 'Favorites',   icon: <FavoritesIcon filled={activeView === 'favorites'} />, onClick: () => { setActiveView('favorites'); setOpenCol(null) } },
-    { key: 'trash',       label: 'Trash',        icon: <TrashIcon />,                             onClick: () => { setActiveView('trash'); setOpenCol(null) } },
+    { key: 'trash',       label: 'Trash',       icon: <TrashIcon />,                                      onClick: () => { setActiveView('trash'); setOpenCol(null) } },
+    { key: 'profile',     label: 'Profile',     icon: <UserIcon />,                                       onClick: () => { setActiveView('profile'); setOpenCol(null) } },
   ]
 
   const viewLabels = {
     collections: { title: 'Collections',  subtitle: 'Organize your visual notes into logical folders.' },
     favorites:   { title: 'Favorites',    subtitle: 'Collections you\'ve starred for quick access.' },
     trash:       { title: 'Trash',        subtitle: 'Deleted collections. Restore or permanently remove them.' },
+    profile:     { title: 'Profile',      subtitle: 'Manage your account settings and preferences.' },
   }
 
   return (
     <div className="flex h-screen overflow-hidden bg-white" style={{ fontFamily: 'Inter,system-ui,sans-serif' }}>
 
       {/* ══════════════════════════════════ SIDEBAR ══════════════════════════ */}
-      <aside className="w-[230px] bg-white border-r border-gray-200 flex flex-col flex-shrink-0 h-screen">
+      <aside className={`${sidebarOpen ? 'w-[230px]' : 'w-0'} bg-white border-r border-gray-200 flex flex-col flex-shrink-0 h-screen overflow-hidden transition-[width] duration-200 ease-in-out`}>
 
         {/* Logo */}
         <div className="px-5 pt-5 pb-5 border-b border-gray-100">
@@ -824,7 +1124,16 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
         {/* Top bar */}
-        <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-4 flex-shrink-0">
+        <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3 flex-shrink-0">
+          {/* Sidebar toggle */}
+          <button
+            onClick={() => setSidebarOpen(v => !v)}
+            className="w-9 h-9 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center hover:bg-gray-200 transition-colors cursor-pointer flex-shrink-0"
+            title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}>
+            <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
           <div className="flex-1 relative">
             <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
               fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -856,7 +1165,7 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
           <div className="px-8 pt-7 pb-24">
 
             {/* Header row */}
-            {!openCol && (
+            {!openCol && activeView !== 'profile' && (
               <div className="flex items-start justify-between mb-7">
                 <div>
                   <div className="flex items-center gap-2 mb-0.5">
@@ -896,6 +1205,8 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
             {/* Detail view */}
             {openCol ? (
               <CollectionDetail col={openCol} onBack={() => setOpenCol(null)} onGoToUpload={onGoToUpload} onDeleteNote={handleDeleteNote} />
+            ) : activeView === 'profile' ? (
+              <ProfileView collections={collections} />
             ) : activeView === 'trash' ? (
               /* ── Trash view ─────────────────────────────────────────────── */
               trashed.length === 0 ? (
