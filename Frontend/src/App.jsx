@@ -221,6 +221,12 @@ export default function App() {
             setTargetCollection(colId ? { id: colId, name: colName, color: colColor } : null)
             setStep('upload')
           }}
+          onSignOut={() => {
+            setCurrentUser(null)
+            localStorage.removeItem('user_session')
+            showToast('Signed out successfully.')
+            setStep('landing')
+          }}
         />
         {toast && <Toast message={toast} />}
       </>

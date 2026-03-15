@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { jsPDF } from 'jspdf'
 
 /* ── Mock collections ──────────────────────────────────────────────────────── */
 const INIT_COLLECTIONS = [
@@ -501,7 +502,174 @@ function AddCard({ onCreate }) {
 function CollectionDetail({ col, onBack, onGoToUpload, onDeleteNote }) {
   const [imgErrors, setImgErrors] = useState({})
   const [confirmId, setConfirmId] = useState(null)   // note id pending delete confirm
+  const [exporting, setExporting] = useState(false)
   const notes = col.notesList || []
+
+  /* ── Export all notes to PDF ─────────────────────────────────────────────── */
+  const handleExportPdf = useCallback(async () => {
+    if (notes.length === 0 || exporting) return
+    setExporting(true)
+
+    try {
+      const doc = new jsPDF('p', 'mm', 'a4')
+      const pageW = doc.internal.pageSize.getWidth()
+      const pageH = doc.internal.pageSize.getHeight()
+      const margin = 18
+      const contentW = pageW - margin * 2
+
+      /* ── Helper: load image as base-64 data URL ── */
+      const loadImage = (url) =>
+        new Promise((resolve) => {
+          const img = new Image()
+          img.crossOrigin = 'anonymous'
+          img.onload = () => {
+            try {
+              const canvas = document.createElement('canvas')
+              canvas.width = img.naturalWidth
+              canvas.height = img.naturalHeight
+              canvas.getContext('2d').drawImage(img, 0, 0)
+              resolve(canvas.toDataURL('image/jpeg', 0.85))
+            } catch { resolve(null) }
+          }
+          img.onerror = () => resolve(null)
+          img.src = url
+        })
+
+      /* ── Cover page ────────────────────────────────────────────────────── */
+      // Accent bar
+      const hex = col.color || '#2563eb'
+      const r = parseInt(hex.slice(1, 3), 16)
+      const g = parseInt(hex.slice(3, 5), 16)
+      const b = parseInt(hex.slice(5, 7), 16)
+
+      doc.setFillColor(r, g, b)
+      doc.rect(0, 0, pageW, 6, 'F')
+
+      // Title
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(28)
+      doc.setTextColor(30, 30, 30)
+      doc.text(col.name, pageW / 2, 40, { align: 'center' })
+
+      // Subtitle info
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(12)
+      doc.setTextColor(120, 120, 120)
+      doc.text(`${notes.length} Note${notes.length !== 1 ? 's' : ''}  •  Last updated ${col.lastUpdated}`, pageW / 2, 52, { align: 'center' })
+      doc.text(`Exported on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`, pageW / 2, 60, { align: 'center' })
+
+      // Divider
+      doc.setDrawColor(r, g, b)
+      doc.setLineWidth(0.5)
+      doc.line(margin, 68, pageW - margin, 68)
+
+      // Table of contents
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(14)
+      doc.setTextColor(30, 30, 30)
+      doc.text('Table of Contents', margin, 80)
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(11)
+      notes.forEach((note, i) => {
+        const tocY = 90 + i * 8
+        if (tocY > pageH - 20) return // skip if too many
+        doc.setTextColor(r, g, b)
+        doc.text(`${i + 1}.`, margin, tocY)
+        doc.setTextColor(50, 50, 50)
+        doc.text(note.title || 'Untitled Note', margin + 8, tocY)
+        doc.setTextColor(160, 160, 160)
+        doc.text(note.date || '', pageW - margin, tocY, { align: 'right' })
+      })
+
+      /* ── Note pages ────────────────────────────────────────────────────── */
+      for (let i = 0; i < notes.length; i++) {
+        const note = notes[i]
+        doc.addPage()
+        let y = margin
+
+        // Top accent bar
+        doc.setFillColor(r, g, b)
+        doc.rect(0, 0, pageW, 4, 'F')
+        y = 16
+
+        // Note number badge
+        doc.setFillColor(r, g, b)
+        doc.roundedRect(margin, y - 4, 18, 8, 2, 2, 'F')
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(9)
+        doc.setTextColor(255, 255, 255)
+        doc.text(`${i + 1} / ${notes.length}`, margin + 9, y + 1.5, { align: 'center' })
+
+        // Title
+        y += 14
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(20)
+        doc.setTextColor(30, 30, 30)
+        const titleLines = doc.splitTextToSize(note.title || 'Untitled Note', contentW)
+        doc.text(titleLines, margin, y)
+        y += titleLines.length * 8 + 2
+
+        // Date
+        doc.setFont('helvetica', 'normal')
+        doc.setFontSize(10)
+        doc.setTextColor(140, 140, 140)
+        doc.text(note.date || '', margin, y)
+        y += 6
+
+        // Tags
+        if (note.tags?.length) {
+          doc.setFontSize(9)
+          doc.setTextColor(r, g, b)
+          doc.text(note.tags.join('  '), margin, y)
+          y += 6
+        }
+
+        // Separator
+        y += 2
+        doc.setDrawColor(230, 230, 230)
+        doc.setLineWidth(0.3)
+        doc.line(margin, y, pageW - margin, y)
+        y += 8
+
+        // Image
+        if (note.img) {
+          const dataUrl = await loadImage(note.img)
+          if (dataUrl) {
+            try {
+              const maxImgW = contentW
+              const maxImgH = pageH - y - margin - 10
+              const imgProps = doc.getImageProperties(dataUrl)
+              let imgW = maxImgW
+              let imgH = (imgProps.height / imgProps.width) * imgW
+              if (imgH > maxImgH) {
+                imgH = maxImgH
+                imgW = (imgProps.width / imgProps.height) * imgH
+              }
+              const imgX = margin + (contentW - imgW) / 2
+              // Rounded border effect
+              doc.setDrawColor(220, 220, 220)
+              doc.setLineWidth(0.4)
+              doc.roundedRect(imgX - 1, y - 1, imgW + 2, imgH + 2, 2, 2, 'S')
+              doc.addImage(dataUrl, 'JPEG', imgX, y, imgW, imgH)
+              y += imgH + 6
+            } catch { /* skip image if it fails */ }
+          }
+        }
+
+        // Footer
+        doc.setFontSize(8)
+        doc.setTextColor(180, 180, 180)
+        doc.text(`${col.name}  —  Page ${i + 2}`, pageW / 2, pageH - 8, { align: 'center' })
+      }
+
+      doc.save(`${col.name.replace(/[^a-zA-Z0-9 ]/g, '').trim()} - Notes.pdf`)
+    } catch (err) {
+      console.error('PDF export error:', err)
+    } finally {
+      setExporting(false)
+    }
+  }, [notes, col, exporting])
 
   return (
     <div>
@@ -512,7 +680,7 @@ function CollectionDetail({ col, onBack, onGoToUpload, onDeleteNote }) {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <div>
+        <div className="flex-1">
           <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide">Collections</p>
           <div className="flex items-center gap-2">
             <span className="w-3 h-3 rounded-full" style={{ background: col.color }} />
@@ -522,6 +690,34 @@ function CollectionDetail({ col, onBack, onGoToUpload, onDeleteNote }) {
             )}
           </div>
         </div>
+        {/* Export to PDF button */}
+        {notes.length > 0 && (
+          <button
+            onClick={handleExportPdf}
+            disabled={exporting}
+            className={`flex items-center gap-2 px-4 py-2.5 text-[13px] font-bold rounded-xl shadow-sm transition-all cursor-pointer flex-shrink-0 border
+              ${exporting
+                ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                : 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100 hover:border-red-300 active:scale-95'}`}>
+            {exporting ? (
+              <>
+                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Exporting…
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Export PDF
+              </>
+            )}
+          </button>
+        )}
       </div>
 
       <div className="flex items-center gap-4 mb-6">
@@ -663,8 +859,8 @@ function ProfileView({ collections }) {
     try { return JSON.parse(localStorage.getItem('user_session') || 'null') } catch { return null }
   })
   const [form, setForm] = useState({
-    name:        user?.name        || 'Alex Rivera',
-    email:       user?.email       || 'alex.rivera@smartnotes.ai',
+    name:        user?.name        || '',
+    email:       user?.email       || '',
     institution: user?.institution || '',
   })
   const [saved, setSaved] = useState(false)
@@ -954,7 +1150,7 @@ function ProfileView({ collections }) {
 /* ══════════════════════════════════════════════════════════════════════════════
    MAIN PAGE
    ══════════════════════════════════════════════════════════════════════════════ */
-export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload }) {
+export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload, onSignOut }) {
   const [collections,   setCollections]  = useState(() => {
     try {
       const saved = localStorage.getItem('collections')
@@ -969,6 +1165,28 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
   const [openCol,       setOpenCol]      = useState(null)
   const [activeView,    setActiveView]   = useState('collections')
   const [sidebarOpen,   setSidebarOpen]  = useState(true) // 'collections' | 'favorites' | 'trash'
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false)
+
+  /* ── Read logged-in user from localStorage ──────────────────────────────── */
+  const [currentUser, setCurrentUser] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('user_session') || 'null') } catch { return null }
+  })
+  // Keep in sync if user_session changes (e.g. profile edits)
+  useEffect(() => {
+    const handleStorage = () => {
+      try { setCurrentUser(JSON.parse(localStorage.getItem('user_session') || 'null')) } catch {}
+    }
+    window.addEventListener('storage', handleStorage)
+    return () => window.removeEventListener('storage', handleStorage)
+  }, [])
+  // Also refresh when switching back to this view (catches same-tab profile edits)
+  useEffect(() => {
+    try { setCurrentUser(JSON.parse(localStorage.getItem('user_session') || 'null')) } catch {}
+  }, [activeView])
+
+  const userName    = currentUser?.name  || 'Guest'
+  const userEmail   = currentUser?.email || ''
+  const userInitials = userName.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
 
   /* ── Persist to localStorage ──────────────────────────────────────────────── */
   useEffect(() => {
@@ -1145,18 +1363,85 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
                          placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30
                          focus:bg-white border border-transparent focus:border-blue-400/40 transition-all" />
           </div>
-          <div className="flex items-center gap-3 flex-shrink-0">
-            <div className="flex items-center gap-2.5 cursor-pointer">
+          {/* ── User avatar + profile dropdown ── */}
+          <div className="relative flex items-center gap-3 flex-shrink-0">
+            <div
+              className="flex items-center gap-2.5 cursor-pointer select-none"
+              onClick={() => setProfileMenuOpen(v => !v)}>
               <div className="text-right">
-                <p className="text-[12px] font-bold text-gray-900 leading-none">Alex Rivera</p>
-                <p className="text-[10px] text-gray-400 leading-none mt-0.5 uppercase tracking-wide">Free Plan</p>
+                <p className="text-[12px] font-bold text-gray-900 leading-none">{userName}</p>
+                <p className="text-[10px] text-gray-400 leading-none mt-0.5 uppercase tracking-wide">
+                  {currentUser ? 'Pro Plan' : 'Guest'}
+                </p>
               </div>
-              <div className="w-9 h-9 rounded-full bg-gray-200 border-2 border-gray-200 flex items-center justify-center flex-shrink-0">
-                <svg className="w-6 h-6 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v2.4h19.2v-2.4c0-3.2-6.4-4.8-9.6-4.8z"/>
-                </svg>
+              <div className="w-9 h-9 rounded-full bg-blue-600 border-2 border-blue-200 flex items-center justify-center flex-shrink-0 shadow-sm hover:ring-2 hover:ring-blue-300 transition-all">
+                <span className="text-[12px] font-bold text-white leading-none">{userInitials}</span>
               </div>
             </div>
+
+            {/* Profile dropdown */}
+            {profileMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setProfileMenuOpen(false)} />
+                <div className="absolute top-12 right-0 z-50 w-64 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden animate-in fade-in slide-in-from-top-2">
+                  {/* User info header */}
+                  <div className="px-4 pt-4 pb-3 border-b border-gray-100">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0 shadow">
+                        <span className="text-[14px] font-bold text-white">{userInitials}</span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[14px] font-bold text-gray-900 truncate">{userName}</p>
+                        {userEmail && <p className="text-[12px] text-gray-400 truncate">{userEmail}</p>}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Menu items */}
+                  <div className="py-1.5">
+                    <button
+                      onClick={() => { setProfileMenuOpen(false); setActiveView('profile'); setOpenCol(null) }}
+                      className="flex items-center gap-3 w-full px-4 py-2.5 text-[13px] text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer">
+                      <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                      View Profile
+                    </button>
+                    <button
+                      onClick={() => { setProfileMenuOpen(false); setActiveView('collections'); setOpenCol(null) }}
+                      className="flex items-center gap-3 w-full px-4 py-2.5 text-[13px] text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer">
+                      <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+                      </svg>
+                      My Collections
+                    </button>
+                    <button
+                      onClick={() => { setProfileMenuOpen(false); setActiveView('favorites'); setOpenCol(null) }}
+                      className="flex items-center gap-3 w-full px-4 py-2.5 text-[13px] text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer">
+                      <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                      </svg>
+                      Favorites
+                    </button>
+                  </div>
+
+                  {/* Sign out */}
+                  <div className="border-t border-gray-100 py-1.5">
+                    <button
+                      onClick={() => {
+                        setProfileMenuOpen(false)
+                        if (onSignOut) onSignOut()
+                      }}
+                      className="flex items-center gap-3 w-full px-4 py-2.5 text-[13px] text-red-500 hover:bg-red-50 transition-colors cursor-pointer">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                      </svg>
+                      Sign Out
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
