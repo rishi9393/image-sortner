@@ -385,7 +385,7 @@ export default function MyNotesPage({ onGoHome, onGoToUpload }) {
   const [viewMode,     setViewMode]    = useState('grid')
   const [selected,     setSelected]    = useState(new Set())
   const [showBulkAssign, setShowBulkAssign] = useState(false)
-  const [sidebarOpen,    setSidebarOpen]    = useState(false)
+  const [sidebarOpen,    setSidebarOpen]    = useState(true)
   const bulkAssignRef = useRef()
 
   /* ── Reload from localStorage when page becomes active ─────────────────── */

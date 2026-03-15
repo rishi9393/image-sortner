@@ -968,7 +968,7 @@ export default function CollectionsPage({ onGoToNotes, onGoHome, onGoToUpload })
   const [deleteTarget,  setDeleteTarget] = useState(null)   // { col, permanent }
   const [openCol,       setOpenCol]      = useState(null)
   const [activeView,    setActiveView]   = useState('collections')
-  const [sidebarOpen,   setSidebarOpen]  = useState(false) // 'collections' | 'favorites' | 'trash'
+  const [sidebarOpen,   setSidebarOpen]  = useState(true) // 'collections' | 'favorites' | 'trash'
 
   /* ── Persist to localStorage ──────────────────────────────────────────────── */
   useEffect(() => {
