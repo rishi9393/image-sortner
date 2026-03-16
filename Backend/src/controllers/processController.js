@@ -1,16 +1,16 @@
 /**
- * Process Controller  –  v5 (AI Vision pipeline)
+ * Process Controller  –  v6 (Messaging Filenames + Enhanced AI Two-Pass)
  *
  * Pipeline order:
- *  0. Filename sequence  (instant, zero I/O)
- *  1. EXIF timestamps    (skip OCR if enough)
- *  2. ★ AI Vision        (Gemini reads page numbers from images)
- *  3. Full OCR + page detection  (fallback if no AI key)
- *  4. Cross-image / text continuity / upload order
+ *  0a. Filename sequence       (instant, zero I/O)
+ *  0b. ★ Messaging app names   ← NEW — WhatsApp WA####, Telegram timestamps
+ *  1. EXIF timestamps          (skip OCR if enough)
+ *  2. ★ AI Vision (two-pass)   ← ENHANCED — chain-of-thought + verification
+ *  3. Full OCR + page detection (fallback if no AI key)
+ *  4. ★ Signal fusion          ← NEW — merge AI + OCR partial results
+ *  5. Cross-image / text continuity / upload order
  *
- * When GEMINI_API_KEY is set, the AI call runs IN PARALLEL with OCR
- * so there's no extra wait time — whichever finishes first doesn't
- * block the other.
+ * When GEMINI_API_KEY is set, the AI call runs IN PARALLEL with OCR.
  */
 
 "use strict";
@@ -21,6 +21,7 @@ const ocrService           = require("../services/ocrService");
 const pageDetectionService = require("../services/pageDetectionService");
 const sortingService       = require("../services/sortingService");
 const aiPageDetection      = require("../services/aiPageDetectionService");
+const { detectMessagingAppOrder } = require("../services/messagingFilenameService");
 const AppError             = require("../utils/AppError");
 const logger               = require("../utils/logger");
 
@@ -28,7 +29,7 @@ const EXIF_QUORUM = 0.5;
 
 // Log whether AI is available on startup
 if (aiPageDetection.isAvailable()) {
-  logger.info("✓ AI page detection ENABLED (Gemini API key found)");
+  logger.info("✓ AI page detection ENABLED (Gemini API key found) — two-pass mode");
 } else {
   logger.info("⚠ AI page detection DISABLED (no GEMINI_API_KEY in .env) — falling back to OCR-only");
 }
@@ -134,14 +135,14 @@ async function getProcessResults(req, res, next) {
   } catch (err) { next(err); }
 }
 
-// ─── Core pipeline (v5 — AI + OCR in parallel) ──────────────────────────────
+// ─── Core pipeline (v6 — Messaging + Enhanced AI + Fusion) ───────────────────
 
 async function _runPipeline(session, onOcrProgress) {
   const { sessionId, files } = session;
   const n = files.length;
 
   // ════════════════════════════════════════════════════════════════════════
-  // FAST PATH 0 — Filename sequential order
+  // FAST PATH 0a — Filename sequential order (1, 2, 3...)
   // ════════════════════════════════════════════════════════════════════════
   const bareAnalyses = files.map((file, i) => ({
     ...file, originalIndex: i,
@@ -151,9 +152,19 @@ async function _runPipeline(session, onOcrProgress) {
 
   const fnResult = sortingService.sortImages(bareAnalyses, null);
   if (fnResult.sortMethod === "filename_order") {
-    logger.info(`[${sessionId}] Fast path 0 (filename).`);
+    logger.info(`[${sessionId}] Fast path 0a (filename).`);
     if (onOcrProgress) files.forEach((f, i) => onOcrProgress(i + 1, n, f.originalName));
     return fnResult;
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // FAST PATH 0b — ★ Messaging app filename patterns (WhatsApp, Telegram, etc.)
+  // ════════════════════════════════════════════════════════════════════════
+  const msgResult = detectMessagingAppOrder(bareAnalyses);
+  if (msgResult) {
+    logger.info(`[${sessionId}] Fast path 0b (messaging app filename: ${msgResult.sortMethod}).`);
+    if (onOcrProgress) files.forEach((f, i) => onOcrProgress(i + 1, n, f.originalName));
+    return msgResult;
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -179,7 +190,7 @@ async function _runPipeline(session, onOcrProgress) {
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  // MAIN PATH — AI Vision + OCR run IN PARALLEL
+  // MAIN PATH — ★ AI Vision (two-pass) + OCR run IN PARALLEL
   // ════════════════════════════════════════════════════════════════════════
 
   // Start AI call (non-blocking) — will resolve to null if no API key
@@ -191,7 +202,7 @@ async function _runPipeline(session, onOcrProgress) {
     : Promise.resolve(null);
 
   // Start OCR in parallel
-  logger.info(`[${sessionId}] Step 2 — Full-image OCR + AI Vision (parallel)…`);
+  logger.info(`[${sessionId}] Step 2 — Full-image OCR + AI Vision two-pass (parallel)…`);
   const ocrResults = await ocrService.extractTextBatch(
     files.map((f) => f.filePath),
     onOcrProgress
@@ -201,11 +212,19 @@ async function _runPipeline(session, onOcrProgress) {
   const aiResult = await aiPromise;
 
   if (aiResult) {
-    logger.info(`[${sessionId}] ★ AI Vision detected pages: [${aiResult.pageNumbers.join(", ")}]`);
+    logger.info(
+      `[${sessionId}] ★ AI Vision result: [${aiResult.pageNumbers.join(", ")}] ` +
+      `(confidence: ${aiResult.confidence.toFixed(2)}, verified: ${aiResult.verified})`
+    );
+    if (aiResult.perImageConfidence) {
+      logger.debug(
+        `[${sessionId}] Per-image confidence: [${aiResult.perImageConfidence.join(", ")}]`
+      );
+    }
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  // Step 3 — Per-image page detection (OCR-based, as fallback)
+  // Step 3 — Per-image page detection (OCR-based, as fallback / fusion input)
   // ════════════════════════════════════════════════════════════════════════
   const perImageDetections = ocrResults.map((ocr, i) => {
     const det = pageDetectionService.detectPageNumber(ocr.text);
@@ -237,7 +256,9 @@ async function _runPipeline(session, onOcrProgress) {
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  // Step 5 — Build analyses and sort (AI result passed as top-priority signal)
+  // Step 5 — Build analyses and sort
+  //   AI result passed as top-priority signal.
+  //   Sorting service handles: AI → OCR → Fusion → Cross-image → etc.
   // ════════════════════════════════════════════════════════════════════════
   const analyses = files.map((file, i) => ({
     ...file, originalIndex: i,
