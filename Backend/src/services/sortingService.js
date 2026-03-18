@@ -25,15 +25,178 @@
 "use strict";
 
 const logger = require("../utils/logger");
-const { sortByTextContinuity, scoreContinuity } = require("./textContinuityService");
+const {
+  sortByTextContinuity,
+  scoreContinuity,
+} = require("./textContinuityService");
 const { detectPageNumbersAcrossImages } = require("./pageDetectionService");
 const { detectMessagingAppOrder } = require("./messagingFilenameService");
+const digitValidation = require("./digitValidationService");
+const confidenceAggregation = require("./confidenceAggregationService");
+const sequenceRepair = require("./sequenceRepairService");
+const ambiguityDetection = require("./ambiguityDetectionService");
+const aiEnhancement = require("./aiEnhancementService");
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const PAGE_NUMBER_CONFIDENCE_THRESHOLD = 0.45;
-const QUORUM_FRACTION                  = 0.30;
-const CROSS_IMAGE_MIN_CONFIDENCE       = 0.65;
+const QUORUM_FRACTION = 0.3;
+const CROSS_IMAGE_MIN_CONFIDENCE = 0.65;
+
+// ── Validation & Enhancement Pipeline ──────────────────────────────────────────
+
+/**
+ * ★ NEW (Improvements #1–#10)
+ *
+ * Apply all accuracy enhancements to a sort result.
+ * Integrates: digit validation, confidence aggregation, sequence repair,
+ * ambiguity detection, and overall quality assessment.
+ *
+ * @param {{
+ *   sortedImages: Array,
+ *   sortMethod: string,
+ *   sortMethodDescription: string,
+ *   aiResult?: Object,
+ * }} result
+ *
+ * @param {Array} analyses
+ *
+ * @returns {{
+ *   ...result,
+ *   enhancedResult: true,
+ *   confidenceAggregation: Object,
+ *   warnings: string[],
+ *   requiresAIVerification: boolean,
+ * }}
+ */
+function _applyAccuracyEnhancements(result, analyses) {
+  const enhancements = {
+    warnings: [],
+    flagsForAI: [],
+    digitIssues: [],
+    sequenceIssues: [],
+  };
+
+  // ── Enhancement 1: Digit Validation (Improvement #1) ──────────────────────
+  for (let i = 0; i < analyses.length; i++) {
+    const analysis = analyses[i];
+    if (analysis.pageDetection && analysis.pageDetection.confidence < 0.7) {
+      const validation = digitValidation.validateDigit(analysis.pageDetection, {
+        allDetectedPages: analyses
+          .map((a) => a.pageNumber)
+          .filter((p) => p !== null),
+        imageIndex: i,
+        totalImages: analyses.length,
+      });
+
+      if (validation.flagged) {
+        enhancements.digitIssues.push({
+          imageIndex: i,
+          originalConfidence: analysis.pageDetection.confidence,
+          adjustment: validation.confidence - analysis.pageDetection.confidence,
+          reason: validation.reason,
+        });
+
+        // Update confidence in place
+        analysis.pageDetection.confidence = validation.confidence;
+      }
+    }
+  }
+
+  // ── Enhancement 5: Sequence Repair (Improvement #5) ──────────────────────
+  const detectedPages = analyses
+    .map((a) => a.pageNumber)
+    .filter((p) => p !== null && p !== undefined)
+    .sort((a, b) => a - b);
+
+  if (detectedPages.length > 0) {
+    const gapAnalysis = sequenceRepair.analyzeSequenceGaps(
+      detectedPages,
+      analyses.length,
+    );
+
+    if (gapAnalysis.hasGaps && gapAnalysis.anomalyLevel !== "normal") {
+      enhancements.warnings.push(gapAnalysis.recommendation);
+      if (gapAnalysis.requiresAIVerification) {
+        enhancements.flagsForAI.push(
+          "Sequence gaps detected—AI verification recommended.",
+        );
+      }
+    }
+  }
+
+  // ── Enhancement 3: Ambiguity Detection (Improvement #3) ───────────────────
+  for (let i = 0; i < analyses.length; i++) {
+    const analysis = analyses[i];
+    if (analysis.ocr && analysis.ocr.text) {
+      // Collect all detections from OCR text for this image
+      // (This would require access to raw OCR detections, which we simplify here)
+      // Flag if detection confidence is marginal
+      if (
+        analysis.pageDetection &&
+        analysis.pageDetection.confidence >= 0.45 &&
+        analysis.pageDetection.confidence <= 0.65
+      ) {
+        enhancements.flagsForAI.push(
+          `Image ${i + 1}: ambiguous page detection (confidence ${analysis.pageDetection.confidence.toFixed(2)})`,
+        );
+      }
+    }
+  }
+
+  // ── Build confidence aggregation ──────────────────────────────────────────
+  const signals = {
+    ocr: _estimateOCRConfidence(analyses),
+    ai: result.aiResult?.confidence || undefined,
+    aiVerified: result.aiResult?.verified || false,
+    textContinuity: _estimateTextContinuityConfidence(analyses),
+    crossImage: (detectedPages.length / Math.max(1, analyses.length)) * 0.8, // Rough estimate
+  };
+
+  const agg = confidenceAggregation.aggregateConfidence(signals);
+
+  return {
+    ...result,
+    enhancedResult: true,
+    confidenceAggregation: agg,
+    enhancements,
+    warnings: enhancements.warnings,
+    requiresAIVerification:
+      enhancements.flagsForAI.length > 0 && agg.quality !== "high",
+    flagged: agg.shouldFlagForReview,
+  };
+}
+
+/**
+ * Estimate OCR confidence from analyzed images.
+ */
+function _estimateOCRConfidence(analyses) {
+  const withPageNumber = analyses.filter(
+    (a) =>
+      a.pageDetection &&
+      a.pageDetection.confidence >= PAGE_NUMBER_CONFIDENCE_THRESHOLD,
+  );
+
+  if (withPageNumber.length === 0) return 0;
+
+  const avgConfidence =
+    withPageNumber.reduce((sum, a) => sum + a.pageDetection.confidence, 0) /
+    withPageNumber.length;
+  const coverage = withPageNumber.length / analyses.length;
+
+  return Math.min(0.95, avgConfidence * coverage);
+}
+
+/**
+ * Estimate text continuity confidence (rough heuristic).
+ */
+function _estimateTextContinuityConfidence(analyses) {
+  const withText = analyses.filter(
+    (a) => a.ocr && a.ocr.text && a.ocr.text.trim().length > 20,
+  );
+  if (withText.length < 2) return 0;
+  return Math.min(0.8, 0.5 + (withText.length / analyses.length) * 0.3);
+}
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -43,10 +206,18 @@ const CROSS_IMAGE_MIN_CONFIDENCE       = 0.65;
  */
 function sortImages(analyses, aiResult = null) {
   if (!analyses || analyses.length === 0) {
-    return { sortedImages: [], sortMethod: "original_order", sortMethodDescription: "No images to sort." };
+    return {
+      sortedImages: [],
+      sortMethod: "original_order",
+      sortMethodDescription: "No images to sort.",
+    };
   }
   if (analyses.length === 1) {
-    return { sortedImages: analyses, sortMethod: "original_order", sortMethodDescription: "Only one image — nothing to sort." };
+    return {
+      sortedImages: analyses,
+      sortMethod: "original_order",
+      sortMethodDescription: "Only one image — nothing to sort.",
+    };
   }
 
   // ── Signal 0a: Filename sequential numbers ────────────────────────────────
@@ -67,18 +238,24 @@ function sortImages(analyses, aiResult = null) {
   if (aiResult && aiResult.pageNumbers) {
     const aiSortResult = _sortByAiPageNumbers(analyses, aiResult);
     if (aiSortResult) {
-      logger.info(`Sort method: ai_vision_page_number (verified: ${aiResult.verified || false})`);
+      logger.info(
+        `Sort method: ai_vision_page_number (verified: ${aiResult.verified || false})`,
+      );
       return aiSortResult;
     }
   }
 
   // ── Signal 2: Per-image OCR page numbers ──────────────────────────────────
   const withPageNumbers = analyses.filter(
-    (img) => img.pageDetection && img.pageDetection.confidence >= PAGE_NUMBER_CONFIDENCE_THRESHOLD
+    (img) =>
+      img.pageDetection &&
+      img.pageDetection.confidence >= PAGE_NUMBER_CONFIDENCE_THRESHOLD,
   );
 
   if (withPageNumbers.length / analyses.length >= QUORUM_FRACTION) {
-    logger.info(`Sort method: page_number (${withPageNumbers.length}/${analyses.length})`);
+    logger.info(
+      `Sort method: page_number (${withPageNumbers.length}/${analyses.length})`,
+    );
     return _sortByPageNumber(analyses, withPageNumbers);
   }
 
@@ -100,31 +277,43 @@ function sortImages(analyses, aiResult = null) {
 
   // ── Signal 4: Timestamps ──────────────────────────────────────────────────
   const withTimestamps = analyses.filter(
-    (img) => img.metadata && img.metadata.earliestDate instanceof Date
+    (img) => img.metadata && img.metadata.earliestDate instanceof Date,
   );
-  const uniqueTimestamps = new Set(withTimestamps.map((img) => img.metadata.earliestDate.getTime()));
+  const uniqueTimestamps = new Set(
+    withTimestamps.map((img) => img.metadata.earliestDate.getTime()),
+  );
 
-  if (withTimestamps.length / analyses.length >= 0.5 && uniqueTimestamps.size > 1) {
-    logger.info(`Sort method: timestamp (${withTimestamps.length}/${analyses.length})`);
+  if (
+    withTimestamps.length / analyses.length >= 0.5 &&
+    uniqueTimestamps.size > 1
+  ) {
+    logger.info(
+      `Sort method: timestamp (${withTimestamps.length}/${analyses.length})`,
+    );
     return _sortByTimestamp(analyses);
   }
 
   // ── Signal 5: Text continuity ─────────────────────────────────────────────
   const withText = analyses.filter(
-    (img) => img.ocr && img.ocr.text && img.ocr.text.trim().length > 20
+    (img) => img.ocr && img.ocr.text && img.ocr.text.trim().length > 20,
   );
 
   if (withText.length / analyses.length >= 0.5) {
-    logger.info(`Sort method: text_continuity (${withText.length}/${analyses.length})`);
+    logger.info(
+      `Sort method: text_continuity (${withText.length}/${analyses.length})`,
+    );
     return sortByTextContinuity(analyses);
   }
 
   // ── Fallback ──────────────────────────────────────────────────────────────
   logger.info("Sort method: original_order (no reliable signals found)");
   return {
-    sortedImages: [...analyses].sort((a, b) => a.originalIndex - b.originalIndex),
-    sortMethod:   "original_order",
-    sortMethodDescription: "No reliable signals found. Images are shown in upload order.",
+    sortedImages: [...analyses].sort(
+      (a, b) => a.originalIndex - b.originalIndex,
+    ),
+    sortMethod: "original_order",
+    sortMethodDescription:
+      "No reliable signals found. Images are shown in upload order.",
   };
 }
 
@@ -140,8 +329,8 @@ function _detectFilenameOrder(analyses) {
 
   if (numbered.some((n) => n === null)) return null;
 
-  const sorted    = [...numbered].sort((a, b) => a.num - b.num);
-  const nums      = sorted.map((n) => n.num);
+  const sorted = [...numbered].sort((a, b) => a.num - b.num);
+  const nums = sorted.map((n) => n.num);
   const uniqueSet = new Set(nums);
 
   if (uniqueSet.size !== nums.length) return null;
@@ -151,8 +340,8 @@ function _detectFilenameOrder(analyses) {
   if (max - min + 1 !== nums.length) return null;
 
   return {
-    sortedImages:          sorted.map((n) => n.img),
-    sortMethod:            "filename_order",
+    sortedImages: sorted.map((n) => n.img),
+    sortMethod: "filename_order",
     sortMethodDescription: `Sorted by sequential numbers found in filenames (${min}–${max}).`,
   };
 }
@@ -168,15 +357,15 @@ function _sortByAiPageNumbers(analyses, aiResult) {
   const validCount = pageNumbers.filter((p) => p !== null).length;
   if (validCount < n * 0.4) return null; // need at least 40% coverage
 
-  const withPages    = [];
+  const withPages = [];
   const withoutPages = [];
 
   for (let i = 0; i < n; i++) {
     if (pageNumbers[i] !== null) {
       withPages.push({
-        img:        analyses[i],
+        img: analyses[i],
         pageNumber: pageNumbers[i],
-        imgConf:    perImageConfidence ? perImageConfidence[i] : "medium",
+        imgConf: perImageConfidence ? perImageConfidence[i] : "medium",
       });
     } else {
       withoutPages.push(analyses[i]);
@@ -185,7 +374,7 @@ function _sortByAiPageNumbers(analyses, aiResult) {
 
   // Handle duplicates: prefer the one with higher per-image confidence, then lower originalIndex
   const pageMap = new Map();
-  const extras  = [];
+  const extras = [];
 
   const confRank = { high: 3, medium: 2, low: 1 };
 
@@ -196,10 +385,13 @@ function _sortByAiPageNumbers(analyses, aiResult) {
     } else {
       // Compare per-image confidence first, then originalIndex
       const existRank = confRank[existing.imgConf] || 1;
-      const newRank   = confRank[entry.imgConf] || 1;
+      const newRank = confRank[entry.imgConf] || 1;
 
-      if (newRank > existRank ||
-          (newRank === existRank && entry.img.originalIndex < existing.img.originalIndex)) {
+      if (
+        newRank > existRank ||
+        (newRank === existRank &&
+          entry.img.originalIndex < existing.img.originalIndex)
+      ) {
         extras.push(existing.img);
         pageMap.set(entry.pageNumber, entry);
       } else {
@@ -208,25 +400,31 @@ function _sortByAiPageNumbers(analyses, aiResult) {
     }
   }
 
-  const sorted    = [...pageMap.values()].sort((a, b) => a.pageNumber - b.pageNumber);
-  const remainder = [...withoutPages, ...extras].sort((a, b) => a.originalIndex - b.originalIndex);
+  const sorted = [...pageMap.values()].sort(
+    (a, b) => a.pageNumber - b.pageNumber,
+  );
+  const remainder = [...withoutPages, ...extras].sort(
+    (a, b) => a.originalIndex - b.originalIndex,
+  );
 
-  const pagesDetected   = sorted.map((e) => e.pageNumber).join(", ");
-  const verifiedStr     = verified ? " ✓ verified by content-flow analysis" : "";
-  const sortedImgs      = sorted.map((e) => e.img);
-  const sortedPageNums  = sorted.map((e) => e.pageNumber);
+  const pagesDetected = sorted.map((e) => e.pageNumber).join(", ");
+  const verifiedStr = verified ? " ✓ verified by content-flow analysis" : "";
+  const sortedImgs = sorted.map((e) => e.img);
+  const sortedPageNums = sorted.map((e) => e.pageNumber);
 
   // ★ Smart insertion: place unrecognized images by text-flow analysis
-  const merged       = _insertRemaindersByFlow(sortedImgs, remainder, sortedPageNums);
+  const merged = _insertRemaindersByFlow(sortedImgs, remainder, sortedPageNums);
   const placedInline = remainder.length > 0 ? remainder.length : 0;
 
   return {
     sortedImages: merged,
-    sortMethod:   "ai_vision_page_number",
+    sortMethod: "ai_vision_page_number",
     sortMethodDescription:
       `Sorted by AI vision page detection using ${aiResult.model || "Gemini"} ` +
       `(${pageMap.size} pages detected: ${pagesDetected}, confidence: ${confidence.toFixed(2)}${verifiedStr}).` +
-      (placedInline > 0 ? ` ${placedInline} image(s) placed by text-flow analysis.` : ""),
+      (placedInline > 0
+        ? ` ${placedInline} image(s) placed by text-flow analysis.`
+        : ""),
   };
 }
 
@@ -234,14 +432,19 @@ function _sortByAiPageNumbers(analyses, aiResult) {
 
 function _sortByPageNumber(analyses, withPageNumbers) {
   const withoutPageNumbers = analyses.filter(
-    (img) => !img.pageDetection || img.pageDetection.confidence < PAGE_NUMBER_CONFIDENCE_THRESHOLD
+    (img) =>
+      !img.pageDetection ||
+      img.pageDetection.confidence < PAGE_NUMBER_CONFIDENCE_THRESHOLD,
   );
 
   const pageMap = new Map();
   for (const img of withPageNumbers) {
     const pn = img.pageDetection.pageNumber;
     const existing = pageMap.get(pn);
-    if (!existing || img.pageDetection.confidence > existing.pageDetection.confidence) {
+    if (
+      !existing ||
+      img.pageDetection.confidence > existing.pageDetection.confidence
+    ) {
       if (existing) withoutPageNumbers.push(existing);
       pageMap.set(pn, img);
     } else {
@@ -249,8 +452,8 @@ function _sortByPageNumber(analyses, withPageNumbers) {
     }
   }
 
-  const sorted = [...pageMap.values()].sort((a, b) =>
-    a.pageDetection.pageNumber - b.pageDetection.pageNumber
+  const sorted = [...pageMap.values()].sort(
+    (a, b) => a.pageDetection.pageNumber - b.pageDetection.pageNumber,
   );
 
   const remainder = [...withoutPageNumbers].sort((a, b) => {
@@ -258,19 +461,21 @@ function _sortByPageNumber(analyses, withPageNumbers) {
     return tDiff !== 0 ? tDiff : a.originalIndex - b.originalIndex;
   });
 
-  const pagesDetected   = [...pageMap.keys()].sort((a, b) => a - b).join(", ");
-  const sortedPageNums  = sorted.map((img) => img.pageDetection.pageNumber);
+  const pagesDetected = [...pageMap.keys()].sort((a, b) => a - b).join(", ");
+  const sortedPageNums = sorted.map((img) => img.pageDetection.pageNumber);
 
   // ★ Smart insertion: place unrecognized images by text-flow analysis
-  const merged       = _insertRemaindersByFlow(sorted, remainder, sortedPageNums);
+  const merged = _insertRemaindersByFlow(sorted, remainder, sortedPageNums);
   const placedInline = remainder.length > 0 ? remainder.length : 0;
 
   return {
     sortedImages: merged,
-    sortMethod:   "page_number",
+    sortMethod: "page_number",
     sortMethodDescription:
       `Sorted by detected page numbers (${pageMap.size} found: ${pagesDetected}).` +
-      (placedInline > 0 ? ` ${placedInline} image(s) placed by text-flow analysis.` : ""),
+      (placedInline > 0
+        ? ` ${placedInline} image(s) placed by text-flow analysis.`
+        : ""),
   };
 }
 
@@ -288,14 +493,14 @@ function _trySignalFusion(analyses, aiResult) {
   if (!aiPages || aiPages.length !== n) return null;
 
   // Build a fused page number array
-  const fusedPages      = new Array(n).fill(null);
-  const fusedSources    = new Array(n).fill(null); // 'ai' | 'ocr' | null
-  const confRank        = { high: 3, medium: 2, low: 1 };
+  const fusedPages = new Array(n).fill(null);
+  const fusedSources = new Array(n).fill(null); // 'ai' | 'ocr' | null
+  const confRank = { high: 3, medium: 2, low: 1 };
 
   // Start with AI results
   for (let i = 0; i < n; i++) {
     if (aiPages[i] !== null) {
-      fusedPages[i]   = aiPages[i];
+      fusedPages[i] = aiPages[i];
       fusedSources[i] = "ai";
     }
   }
@@ -309,20 +514,22 @@ function _trySignalFusion(analyses, aiResult) {
       // Check for conflict: is this OCR page number already assigned to another image by AI?
       const conflict = fusedPages.indexOf(det.pageNumber);
       if (conflict === -1) {
-        fusedPages[i]   = det.pageNumber;
+        fusedPages[i] = det.pageNumber;
         fusedSources[i] = "ocr";
         ocrFilled++;
       } else {
         // OCR says this is page X, but AI already assigned page X to another image
         // Trust AI, skip this OCR detection
-        logger.debug(`Fusion: OCR page ${det.pageNumber} for image ${i} conflicts with AI assignment for image ${conflict} — skipping OCR.`);
+        logger.debug(
+          `Fusion: OCR page ${det.pageNumber} for image ${i} conflicts with AI assignment for image ${conflict} — skipping OCR.`,
+        );
       }
     }
   }
 
   // Check if fusion gives us enough coverage
   const fusedValid = fusedPages.filter((p) => p !== null).length;
-  const aiValid    = aiPages.filter((p) => p !== null).length;
+  const aiValid = aiPages.filter((p) => p !== null).length;
 
   // Fusion must be better than AI alone AND meet minimum quorum
   if (fusedValid <= aiValid || fusedValid / n < 0.5) {
@@ -330,16 +537,20 @@ function _trySignalFusion(analyses, aiResult) {
   }
 
   logger.info(
-    `Signal fusion: AI provided ${aiValid}/${n}, OCR filled ${ocrFilled} gaps → ${fusedValid}/${n} total`
+    `Signal fusion: AI provided ${aiValid}/${n}, OCR filled ${ocrFilled} gaps → ${fusedValid}/${n} total`,
   );
 
   // Build sorted result
-  const withPages    = [];
+  const withPages = [];
   const withoutPages = [];
 
   for (let i = 0; i < n; i++) {
     if (fusedPages[i] !== null) {
-      withPages.push({ img: analyses[i], pageNumber: fusedPages[i], source: fusedSources[i] });
+      withPages.push({
+        img: analyses[i],
+        pageNumber: fusedPages[i],
+        source: fusedSources[i],
+      });
     } else {
       withoutPages.push(analyses[i]);
     }
@@ -347,7 +558,7 @@ function _trySignalFusion(analyses, aiResult) {
 
   // Handle duplicates (prefer AI source, then higher index stability)
   const pageMap = new Map();
-  const extras  = [];
+  const extras = [];
 
   for (const entry of withPages) {
     const existing = pageMap.get(entry.pageNumber);
@@ -356,7 +567,7 @@ function _trySignalFusion(analyses, aiResult) {
     } else {
       // Prefer AI over OCR, then lower originalIndex
       const existIsAI = existing.source === "ai";
-      const newIsAI   = entry.source === "ai";
+      const newIsAI = entry.source === "ai";
       if (newIsAI && !existIsAI) {
         extras.push(existing.img);
         pageMap.set(entry.pageNumber, entry);
@@ -371,44 +582,57 @@ function _trySignalFusion(analyses, aiResult) {
     }
   }
 
-  const sorted    = [...pageMap.values()].sort((a, b) => a.pageNumber - b.pageNumber);
-  const remainder = [...withoutPages, ...extras].sort((a, b) => a.originalIndex - b.originalIndex);
+  const sorted = [...pageMap.values()].sort(
+    (a, b) => a.pageNumber - b.pageNumber,
+  );
+  const remainder = [...withoutPages, ...extras].sort(
+    (a, b) => a.originalIndex - b.originalIndex,
+  );
 
-  const pagesDetected   = sorted.map((e) => `${e.pageNumber}(${e.source})`).join(", ");
-  const sortedImgs      = sorted.map((e) => e.img);
-  const sortedPageNums  = sorted.map((e) => e.pageNumber);
+  const pagesDetected = sorted
+    .map((e) => `${e.pageNumber}(${e.source})`)
+    .join(", ");
+  const sortedImgs = sorted.map((e) => e.img);
+  const sortedPageNums = sorted.map((e) => e.pageNumber);
 
   // ★ Smart insertion: place unrecognized images by text-flow analysis
-  const merged       = _insertRemaindersByFlow(sortedImgs, remainder, sortedPageNums);
+  const merged = _insertRemaindersByFlow(sortedImgs, remainder, sortedPageNums);
   const placedInline = remainder.length > 0 ? remainder.length : 0;
 
   return {
     sortedImages: merged,
-    sortMethod:   "signal_fusion",
+    sortMethod: "signal_fusion",
     sortMethodDescription:
       `Sorted by fusing AI vision (${aiValid} pages) + OCR detection (${ocrFilled} pages) → ` +
       `${pageMap.size} total pages: ${pagesDetected}.` +
-      (placedInline > 0 ? ` ${placedInline} image(s) placed by text-flow analysis.` : ""),
+      (placedInline > 0
+        ? ` ${placedInline} image(s) placed by text-flow analysis.`
+        : ""),
   };
 }
 
 // ── Signal 3: Cross-image sequence ────────────────────────────────────────────
 
 function _tryCrossImageSort(analyses) {
-  const ocrResults         = analyses.map((img) => img.ocr || { text: "", confidence: 0 });
+  const ocrResults = analyses.map(
+    (img) => img.ocr || { text: "", confidence: 0 },
+  );
   const perImageDetections = analyses.map((img) => img.pageDetection || null);
 
   const mergedOcr = analyses.map((img) => {
-    const main   = img.ocr?.text || "";
+    const main = img.ocr?.text || "";
     const region = img.regionOcr?.text || "";
-    return { text: region ? `${main}\n${region}` : main, confidence: img.ocr?.confidence || 0 };
+    return {
+      text: region ? `${main}\n${region}` : main,
+      confidence: img.ocr?.confidence || 0,
+    };
   });
 
   const result = detectPageNumbersAcrossImages(mergedOcr, perImageDetections);
   if (!result || result.confidence < CROSS_IMAGE_MIN_CONFIDENCE) return null;
 
   const { pageNumbers, confidence, coverage } = result;
-  const withPages    = [];
+  const withPages = [];
   const withoutPages = [];
 
   for (let i = 0; i < analyses.length; i++) {
@@ -422,19 +646,25 @@ function _tryCrossImageSort(analyses) {
   withPages.sort((a, b) => a.pageNumber - b.pageNumber);
   withoutPages.sort((a, b) => a.originalIndex - b.originalIndex);
 
-  const sortedImgs     = withPages.map((p) => p.img);
+  const sortedImgs = withPages.map((p) => p.img);
   const sortedPageNums = withPages.map((p) => p.pageNumber);
 
   // ★ Smart insertion: place unrecognized images by text-flow analysis
-  const merged       = _insertRemaindersByFlow(sortedImgs, withoutPages, sortedPageNums);
+  const merged = _insertRemaindersByFlow(
+    sortedImgs,
+    withoutPages,
+    sortedPageNums,
+  );
   const placedInline = withoutPages.length > 0 ? withoutPages.length : 0;
 
   return {
     sortedImages: merged,
-    sortMethod:   "cross_image_page_number",
+    sortMethod: "cross_image_page_number",
     sortMethodDescription:
       `Sorted by cross-image sequence analysis (${(coverage * 100).toFixed(0)}% coverage, confidence ${confidence.toFixed(2)}).` +
-      (placedInline > 0 ? ` ${placedInline} image(s) placed by text-flow analysis.` : ""),
+      (placedInline > 0
+        ? ` ${placedInline} image(s) placed by text-flow analysis.`
+        : ""),
   };
 }
 
@@ -444,17 +674,20 @@ function _sortByTimestamp(analyses) {
   const withTs = analyses
     .filter((img) => img.metadata && img.metadata.earliestDate instanceof Date)
     .sort((a, b) => {
-      const diff = a.metadata.earliestDate.getTime() - b.metadata.earliestDate.getTime();
+      const diff =
+        a.metadata.earliestDate.getTime() - b.metadata.earliestDate.getTime();
       return diff !== 0 ? diff : a.originalIndex - b.originalIndex;
     });
 
   const withoutTs = analyses
-    .filter((img) => !img.metadata || !(img.metadata.earliestDate instanceof Date))
+    .filter(
+      (img) => !img.metadata || !(img.metadata.earliestDate instanceof Date),
+    )
     .sort((a, b) => a.originalIndex - b.originalIndex);
 
   return {
     sortedImages: [...withTs, ...withoutTs],
-    sortMethod:   "timestamp",
+    sortMethod: "timestamp",
     sortMethodDescription:
       `Sorted by image timestamp (${withTs.length} with EXIF timestamps).` +
       (withoutTs.length > 0 ? ` ${withoutTs.length} appended.` : ""),
@@ -465,7 +698,8 @@ function _sortByTimestamp(analyses) {
 
 function _timestampOf(img) {
   return img.metadata && img.metadata.earliestDate instanceof Date
-    ? img.metadata.earliestDate.getTime() : Infinity;
+    ? img.metadata.earliestDate.getTime()
+    : Infinity;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -510,21 +744,26 @@ function _insertRemaindersByFlow(sorted, remainder, sortedPageNumbers = null) {
   // ════════════════════════════════════════════════════════════════════════
   // PHASE 1: Pre-compute all gaps and fill them first
   // ════════════════════════════════════════════════════════════════════════
-  
+
   const gaps = _computeGaps(sortedPageNumbers);
   let unassigned = [...remainder];
-  
+
   // Result array with slots: sorted images + nulls for gap slots
   // We'll build the final sequence by filling gaps
   const result = [];
-  
+
   // Track placement counts for logging
   let placedInGaps = 0;
   let placedAtEnd = 0;
 
   // First, determine how many images go into each gap using text continuity
-  const gapAssignments = _assignImagesToGaps(sorted, gaps, unassigned, sortedPageNumbers);
-  
+  const gapAssignments = _assignImagesToGaps(
+    sorted,
+    gaps,
+    unassigned,
+    sortedPageNumbers,
+  );
+
   // Build the sequence: interleave sorted images with gap assignments
   for (let i = 0; i < sorted.length; i++) {
     // Check if there's a gap BEFORE this sorted image (at insert index i)
@@ -537,7 +776,7 @@ function _insertRemaindersByFlow(sorted, remainder, sortedPageNumbers = null) {
     }
     result.push(sorted[i]);
   }
-  
+
   // Check for gap after the last sorted image
   const gapAtEnd = gapAssignments.get(sorted.length);
   if (gapAtEnd && gapAtEnd.length > 0) {
@@ -551,23 +790,23 @@ function _insertRemaindersByFlow(sorted, remainder, sortedPageNumbers = null) {
   // PHASE 2: Append remaining images at the end
   // ════════════════════════════════════════════════════════════════════════
   // Images that didn't fit in gaps are genuinely "extra" — append at end
-  
+
   const assignedSet = new Set();
   for (const [, imgs] of gapAssignments) {
     for (const img of imgs) assignedSet.add(img);
   }
-  const stillUnassigned = unassigned.filter(img => !assignedSet.has(img));
-  
+  const stillUnassigned = unassigned.filter((img) => !assignedSet.has(img));
+
   // Sort extras by originalIndex to maintain some consistency
   stillUnassigned.sort((a, b) => a.originalIndex - b.originalIndex);
-  
+
   for (const img of stillUnassigned) {
     result.push(img);
     placedAtEnd++;
   }
 
   logger.debug(
-    `Smart insertion: ${placedInGaps} in page gaps, ${placedAtEnd} appended at end`
+    `Smart insertion: ${placedInGaps} in page gaps, ${placedAtEnd} appended at end`,
   );
 
   return result;
@@ -575,7 +814,7 @@ function _insertRemaindersByFlow(sorted, remainder, sortedPageNumbers = null) {
 
 /**
  * Pre-compute all gaps in the page number sequence.
- * 
+ *
  * For pages [1, 3, 6], returns:
  *   [
  *     { insertIdx: 1, gapSize: 1, afterPage: 1, beforePage: 3 },  // missing page 2
@@ -592,10 +831,10 @@ function _computeGaps(pageNumbers) {
   for (let i = 0; i < pageNumbers.length - 1; i++) {
     const curr = pageNumbers[i];
     const next = pageNumbers[i + 1];
-    
+
     if (curr !== null && next !== null && next > curr + 1) {
       gaps.push({
-        insertIdx: i + 1,        // Insert AFTER index i (before index i+1)
+        insertIdx: i + 1, // Insert AFTER index i (before index i+1)
         gapSize: next - curr - 1, // How many pages are missing
         afterPage: curr,
         beforePage: next,
@@ -608,7 +847,7 @@ function _computeGaps(pageNumbers) {
 
 /**
  * Assign unrecognized images to gaps using OPTIMAL MATCHING.
- * 
+ *
  * For small cases (common), tries all possible assignments to find the
  * globally optimal one. For larger cases, falls back to greedy.
  *
@@ -620,12 +859,12 @@ function _computeGaps(pageNumbers) {
  */
 function _assignImagesToGaps(sorted, gaps, unassigned, pageNumbers) {
   const assignments = new Map();
-  
+
   // Initialize empty assignments for each gap
   for (const gap of gaps) {
     assignments.set(gap.insertIdx, []);
   }
-  
+
   if (gaps.length === 0 || unassigned.length === 0) {
     return assignments;
   }
@@ -636,14 +875,14 @@ function _assignImagesToGaps(sorted, gaps, unassigned, pageNumbers) {
     const imgScores = [];
     const img = unassigned[i];
     const imgText = (img.ocr?.text || "").trim();
-    
+
     for (let g = 0; g < gaps.length; g++) {
       const gap = gaps[g];
       const prevImg = sorted[gap.insertIdx - 1];
       const nextImg = sorted[gap.insertIdx];
       const prevText = (prevImg?.ocr?.text || "").trim();
       const nextText = (nextImg?.ocr?.text || "").trim();
-      
+
       let score = 0;
       if (imgText.length >= MIN_TEXT_FOR_CONTINUITY) {
         // Weight "prev → img" MORE than "img → next" (2:1 ratio)
@@ -663,10 +902,14 @@ function _assignImagesToGaps(sorted, gaps, unassigned, pageNumbers) {
   // Calculate total gap capacity
   const totalCapacity = gaps.reduce((sum, g) => sum + g.gapSize, 0);
   const numToAssign = Math.min(unassigned.length, totalCapacity);
-  
+
   // For small cases, find optimal assignment by trying all combinations
   if (gaps.length <= 3 && unassigned.length <= 6) {
-    const bestAssignment = _findOptimalAssignment(unassigned, gaps, scoreMatrix);
+    const bestAssignment = _findOptimalAssignment(
+      unassigned,
+      gaps,
+      scoreMatrix,
+    );
     for (const [gapIdx, imgs] of bestAssignment) {
       const insertIdx = gaps[gapIdx].insertIdx;
       assignments.set(insertIdx, imgs);
@@ -679,17 +922,17 @@ function _assignImagesToGaps(sorted, gaps, unassigned, pageNumbers) {
   // Sort images WITHIN each gap to maximize chain continuity
   for (const [insertIdx, imgs] of assignments) {
     if (imgs.length <= 1) continue;
-    
+
     const prevImg = sorted[insertIdx - 1];
     const nextImg = sorted[insertIdx];
     const prevText = (prevImg?.ocr?.text || "").trim();
     const nextText = (nextImg?.ocr?.text || "").trim();
-    
+
     if (imgs.length <= 4) {
       const permutations = _getPermutations(imgs);
       let bestPerm = imgs;
       let bestScore = -Infinity;
-      
+
       for (const perm of permutations) {
         const score = _chainScore(prevText, perm, nextText);
         if (score > bestScore) {
@@ -716,28 +959,32 @@ function _assignImagesToGaps(sorted, gaps, unassigned, pageNumbers) {
 function _findOptimalAssignment(images, gaps, scoreMatrix) {
   const n = images.length;
   const numGaps = gaps.length;
-  const gapCapacities = gaps.map(g => g.gapSize);
+  const gapCapacities = gaps.map((g) => g.gapSize);
   const totalCapacity = gapCapacities.reduce((a, b) => a + b, 0);
-  
+
   // Generate all ways to assign up to totalCapacity images to gaps
   // Each image can go to one gap or be unassigned (-1)
   let bestAssignment = new Map();
   let bestScore = -Infinity;
-  
+
   // For each subset of images (up to totalCapacity), try all gap assignments
   const numToPlace = Math.min(n, totalCapacity);
-  
+
   // Generate all combinations of which images to place
   const imageCombinations = _getCombinations(images, numToPlace);
-  
+
   for (const selectedImages of imageCombinations) {
     // Generate all ways to distribute selectedImages among gaps
-    const distributions = _getDistributions(selectedImages, numGaps, gapCapacities);
-    
+    const distributions = _getDistributions(
+      selectedImages,
+      numGaps,
+      gapCapacities,
+    );
+
     for (const distribution of distributions) {
       // distribution is an array where distribution[i] is the list of images for gap i
       let totalScore = 0;
-      
+
       for (let gapIdx = 0; gapIdx < numGaps; gapIdx++) {
         const gapImages = distribution[gapIdx];
         for (const img of gapImages) {
@@ -745,7 +992,7 @@ function _findOptimalAssignment(images, gaps, scoreMatrix) {
           totalScore += scoreMatrix[imgIdx][gapIdx];
         }
       }
-      
+
       if (totalScore > bestScore) {
         bestScore = totalScore;
         bestAssignment = new Map();
@@ -755,7 +1002,7 @@ function _findOptimalAssignment(images, gaps, scoreMatrix) {
       }
     }
   }
-  
+
   return bestAssignment;
 }
 
@@ -766,9 +1013,9 @@ function _getCombinations(arr, k) {
   if (k === 0) return [[]];
   if (arr.length === 0) return [];
   if (k > arr.length) k = arr.length;
-  
+
   const result = [];
-  
+
   function combine(start, current) {
     if (current.length === k) {
       result.push([...current]);
@@ -780,7 +1027,7 @@ function _getCombinations(arr, k) {
       current.pop();
     }
   }
-  
+
   combine(0, []);
   return result;
 }
@@ -791,17 +1038,19 @@ function _getCombinations(arr, k) {
  */
 function _getDistributions(items, numGaps, capacities) {
   const results = [];
-  
+
   function distribute(itemIdx, current) {
     if (itemIdx === items.length) {
       // Check if all gaps are within capacity
-      const valid = current.every((gapItems, i) => gapItems.length <= capacities[i]);
+      const valid = current.every(
+        (gapItems, i) => gapItems.length <= capacities[i],
+      );
       if (valid) {
-        results.push(current.map(arr => [...arr]));
+        results.push(current.map((arr) => [...arr]));
       }
       return;
     }
-    
+
     // Try assigning items[itemIdx] to each gap
     for (let g = 0; g < numGaps; g++) {
       if (current[g].length < capacities[g]) {
@@ -811,7 +1060,7 @@ function _getDistributions(items, numGaps, capacities) {
       }
     }
   }
-  
+
   const initial = Array.from({ length: numGaps }, () => []);
   distribute(0, initial);
   return results;
@@ -822,29 +1071,29 @@ function _getDistributions(items, numGaps, capacities) {
  */
 function _greedyAssignToGaps(images, gaps, scoreMatrix, assignments) {
   const scores = [];
-  
+
   for (let i = 0; i < images.length; i++) {
     for (let g = 0; g < gaps.length; g++) {
       scores.push({ imgIdx: i, gapIdx: g, score: scoreMatrix[i][g] });
     }
   }
-  
+
   scores.sort((a, b) => b.score - a.score);
-  
+
   const usedImages = new Set();
   const gapFillCount = new Map();
-  
+
   for (const gap of gaps) {
     gapFillCount.set(gap.insertIdx, 0);
   }
-  
+
   for (const { imgIdx, gapIdx, score } of scores) {
     if (usedImages.has(imgIdx)) continue;
-    
+
     const gap = gaps[gapIdx];
     const currentCount = gapFillCount.get(gap.insertIdx);
     if (currentCount >= gap.gapSize) continue;
-    
+
     assignments.get(gap.insertIdx).push(images[imgIdx]);
     gapFillCount.set(gap.insertIdx, currentCount + 1);
     usedImages.add(imgIdx);
@@ -853,7 +1102,7 @@ function _greedyAssignToGaps(images, gaps, scoreMatrix, assignments) {
 
 /**
  * Compute text-flow score for inserting at position p.
- * 
+ *
  * score = continuity(prev → img) + continuity(img → next) - continuity(prev → next)
  */
 function _textFlowScore(seq, p, imgText) {
@@ -873,7 +1122,10 @@ function _textFlowScore(seq, p, imgText) {
   }
 
   // Subtract the flow we'd be breaking
-  if (prevText.length >= MIN_TEXT_FOR_CONTINUITY && nextText.length >= MIN_TEXT_FOR_CONTINUITY) {
+  if (
+    prevText.length >= MIN_TEXT_FOR_CONTINUITY &&
+    nextText.length >= MIN_TEXT_FOR_CONTINUITY
+  ) {
     score -= scoreContinuity(prevText, nextText);
   }
 
@@ -900,7 +1152,7 @@ function _bestPositionByTimestamp(seq, img) {
  */
 function _getPermutations(arr) {
   if (arr.length <= 1) return [arr];
-  
+
   const result = [];
   for (let i = 0; i < arr.length; i++) {
     const rest = [...arr.slice(0, i), ...arr.slice(i + 1)];
@@ -918,22 +1170,28 @@ function _getPermutations(arr) {
 function _chainScore(prevText, imgs, nextText) {
   let score = 0;
   let lastText = prevText;
-  
+
   for (const img of imgs) {
     const imgText = (img.ocr?.text || "").trim();
-    
-    if (lastText.length >= MIN_TEXT_FOR_CONTINUITY && imgText.length >= MIN_TEXT_FOR_CONTINUITY) {
+
+    if (
+      lastText.length >= MIN_TEXT_FOR_CONTINUITY &&
+      imgText.length >= MIN_TEXT_FOR_CONTINUITY
+    ) {
       score += scoreContinuity(lastText, imgText);
     }
-    
+
     lastText = imgText;
   }
-  
+
   // Score connection to next
-  if (lastText.length >= MIN_TEXT_FOR_CONTINUITY && nextText.length >= MIN_TEXT_FOR_CONTINUITY) {
+  if (
+    lastText.length >= MIN_TEXT_FOR_CONTINUITY &&
+    nextText.length >= MIN_TEXT_FOR_CONTINUITY
+  ) {
     score += scoreContinuity(lastText, nextText);
   }
-  
+
   return score;
 }
 
@@ -945,29 +1203,34 @@ function _greedyChainOrder(prevText, imgs, nextText) {
   const remaining = [...imgs];
   const ordered = [];
   let lastText = prevText;
-  
+
   while (remaining.length > 0) {
     let bestIdx = 0;
     let bestScore = -Infinity;
-    
+
     for (let i = 0; i < remaining.length; i++) {
       const imgText = (remaining[i].ocr?.text || "").trim();
-      const score = (lastText.length >= MIN_TEXT_FOR_CONTINUITY && imgText.length >= MIN_TEXT_FOR_CONTINUITY)
-        ? scoreContinuity(lastText, imgText)
-        : 0;
-      
+      const score =
+        lastText.length >= MIN_TEXT_FOR_CONTINUITY &&
+        imgText.length >= MIN_TEXT_FOR_CONTINUITY
+          ? scoreContinuity(lastText, imgText)
+          : 0;
+
       if (score > bestScore) {
         bestScore = score;
         bestIdx = i;
       }
     }
-    
+
     const chosen = remaining.splice(bestIdx, 1)[0];
     ordered.push(chosen);
     lastText = (chosen.ocr?.text || "").trim();
   }
-  
+
   return ordered;
 }
 
-module.exports = { sortImages };
+module.exports = {
+  sortImages,
+  applyAccuracyEnhancements: _applyAccuracyEnhancements,
+};

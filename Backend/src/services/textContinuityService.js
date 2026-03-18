@@ -25,7 +25,7 @@ const logger = require("../utils/logger");
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const CONTEXT_WORDS    = 30;  // words sampled from each end of a page
+const CONTEXT_WORDS = 30; // words sampled from each end of a page
 const MIN_WORDS_REQUIRED = 10; // don't attempt scoring below this threshold
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -71,14 +71,16 @@ function scoreContinuity(textA, textB) {
  * @returns {{ sortedImages: Array, sortMethod: string, sortMethodDescription: string }}
  */
 function sortByTextContinuity(analyses) {
-  logger.info("Text continuity: building continuity matrix (v3 — pre-tokenized)…");
+  logger.info(
+    "Text continuity: building continuity matrix (v3 — pre-tokenized)…",
+  );
   const matrix = buildContinuityMatrix(analyses);
-  const order  = _greedySort(matrix, analyses.length);
+  const order = _greedySort(matrix, analyses.length);
 
   const sortedImages = order.map((idx) => analyses[idx]);
 
   let totalScore = 0;
-  let pairs      = 0;
+  let pairs = 0;
   for (let k = 0; k < order.length - 1; k++) {
     totalScore += matrix[order[k]][order[k + 1]];
     pairs++;
@@ -89,8 +91,8 @@ function sortByTextContinuity(analyses) {
 
   return {
     sortedImages,
-    sortMethod:             "text_continuity",
-    sortMethodDescription:  `Sorted by text flow analysis between pages (avg continuity score: ${avgScore}).`,
+    sortMethod: "text_continuity",
+    sortMethodDescription: `Sorted by text flow analysis between pages (avg continuity score: ${avgScore}).`,
   };
 }
 
@@ -111,21 +113,37 @@ function sortByTextContinuity(analyses) {
  */
 function _preprocessText(text) {
   if (!text || text.trim().length === 0) {
-    return { wordCount: 0, filteredTail: new Set(), filteredHead: new Set(), lastChar: "", firstLine: "" };
+    return {
+      wordCount: 0,
+      filteredTail: new Set(),
+      filteredHead: new Set(),
+      lastChar: "",
+      firstLine: "",
+    };
   }
 
   const words = _tokenize(text);
 
   const tailWords = words.slice(-CONTEXT_WORDS).map((w) => w.toLowerCase());
-  const headWords = words.slice(0,  CONTEXT_WORDS).map((w) => w.toLowerCase());
+  const headWords = words.slice(0, CONTEXT_WORDS).map((w) => w.toLowerCase());
 
-  const filteredTail = new Set(tailWords.filter((w) => !STOP_WORDS.has(w) && w.length > 3));
-  const filteredHead = new Set(headWords.filter((w) => !STOP_WORDS.has(w) && w.length > 3));
+  const filteredTail = new Set(
+    tailWords.filter((w) => !STOP_WORDS.has(w) && w.length > 3),
+  );
+  const filteredHead = new Set(
+    headWords.filter((w) => !STOP_WORDS.has(w) && w.length > 3),
+  );
 
-  const lastChar  = text.trimEnd().slice(-1);
+  const lastChar = text.trimEnd().slice(-1);
   const firstLine = text.trim().split("\n")[0].trim();
 
-  return { wordCount: words.length, filteredTail, filteredHead, lastChar, firstLine };
+  return {
+    wordCount: words.length,
+    filteredTail,
+    filteredHead,
+    lastChar,
+    firstLine,
+  };
 }
 
 /**
@@ -137,7 +155,8 @@ function _preprocessText(text) {
  * @returns {number} 0.0–1.0
  */
 function _scoreFast(a, b) {
-  if (a.wordCount < MIN_WORDS_REQUIRED || b.wordCount < MIN_WORDS_REQUIRED) return 0;
+  if (a.wordCount < MIN_WORDS_REQUIRED || b.wordCount < MIN_WORDS_REQUIRED)
+    return 0;
 
   let score = 0;
 
@@ -157,15 +176,17 @@ function _scoreFast(a, b) {
       if (larger.has(w)) intersectionCount++;
     }
 
-    const unionSize = a.filteredTail.size + b.filteredHead.size - intersectionCount;
-    const jaccard   = intersectionCount / unionSize;
-    score += jaccard * 0.40;
+    const unionSize =
+      a.filteredTail.size + b.filteredHead.size - intersectionCount;
+    const jaccard = intersectionCount / unionSize;
+    score += jaccard * 0.4;
   }
 
   // ── Signal 3: Page B does NOT start with a heading/title (0–0.25) ─────────
   const looksLikeHeading =
     b.firstLine.length < 60 &&
-    (b.firstLine === b.firstLine.toUpperCase() || /^[A-Z][^a-z]{5,}/.test(b.firstLine));
+    (b.firstLine === b.firstLine.toUpperCase() ||
+      /^[A-Z][^a-z]{5,}/.test(b.firstLine));
 
   if (!looksLikeHeading) score += 0.25;
 
@@ -179,7 +200,7 @@ function _greedySort(matrix, n) {
   if (n === 1) return [0];
 
   const visited = new Set();
-  const order   = [];
+  const order = [];
 
   // Best starting page: lowest column-sum (nothing naturally precedes it)
   let bestStart = 0;
@@ -189,7 +210,10 @@ function _greedySort(matrix, n) {
     for (let i = 0; i < n; i++) {
       if (i !== j) colSum += matrix[i][j];
     }
-    if (colSum < bestScore) { bestScore = colSum; bestStart = j; }
+    if (colSum < bestScore) {
+      bestScore = colSum;
+      bestStart = j;
+    }
   }
 
   let current = bestStart;
@@ -197,12 +221,12 @@ function _greedySort(matrix, n) {
     visited.add(current);
     order.push(current);
 
-    let nextPage  = -1;
+    let nextPage = -1;
     let nextScore = -1;
     for (let j = 0; j < n; j++) {
       if (!visited.has(j) && matrix[current][j] > nextScore) {
         nextScore = matrix[current][j];
-        nextPage  = j;
+        nextPage = j;
       }
     }
     if (nextPage === -1) break;
@@ -219,17 +243,225 @@ function _greedySort(matrix, n) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function _tokenize(text) {
-  return text.replace(/[^a-zA-Z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
+  return text
+    .replace(/[^a-zA-Z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
 }
 
 const STOP_WORDS = new Set([
-  "the","a","an","and","or","but","in","on","at","to","for","of","with","by",
-  "from","is","are","was","were","be","been","being","have","has","had","do",
-  "does","did","will","would","could","should","may","might","can","this","that",
-  "these","those","it","its","as","if","so","not","no","also","into","than",
-  "then","when","where","which","who","what","how","all","each","more","their",
-  "they","them","we","you","he","she","his","her","our","your","my","about",
-  "up","out","very","just","there",
+  "the",
+  "a",
+  "an",
+  "and",
+  "or",
+  "but",
+  "in",
+  "on",
+  "at",
+  "to",
+  "for",
+  "of",
+  "with",
+  "by",
+  "from",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "have",
+  "has",
+  "had",
+  "do",
+  "does",
+  "did",
+  "will",
+  "would",
+  "could",
+  "should",
+  "may",
+  "might",
+  "can",
+  "this",
+  "that",
+  "these",
+  "those",
+  "it",
+  "its",
+  "as",
+  "if",
+  "so",
+  "not",
+  "no",
+  "also",
+  "into",
+  "than",
+  "then",
+  "when",
+  "where",
+  "which",
+  "who",
+  "what",
+  "how",
+  "all",
+  "each",
+  "more",
+  "their",
+  "they",
+  "them",
+  "we",
+  "you",
+  "he",
+  "she",
+  "his",
+  "her",
+  "our",
+  "your",
+  "my",
+  "about",
+  "up",
+  "out",
+  "very",
+  "just",
+  "there",
 ]);
 
-module.exports = { buildContinuityMatrix, scoreContinuity, sortByTextContinuity };
+// ── Semantic Context Enhancement (v3.1) – Topic Detection ─────────────────────
+
+/**
+ * Extract major topics/keywords from text for semantic context awareness.
+ * Used to detect thematic jumps and improve continuity scoring.
+ *
+ * @param {string} text
+ * @returns {Set<string>}  // Set of topic keywords
+ */
+function _extractTopics(text) {
+  if (!text || text.trim().length < 10) return new Set();
+
+  const words = _tokenize(text);
+  const topicKeywords = new Set();
+
+  // Filter to nouns/concepts (words > 5 chars, not stop words)
+  for (const word of words) {
+    const lower = word.toLowerCase();
+    if (
+      lower.length > 5 &&
+      !STOP_WORDS.has(lower) &&
+      !lower.match(/^[\d.,:;!?]+$/) // Exclude punctuation-only
+    ) {
+      topicKeywords.add(lower);
+    }
+  }
+
+  return topicKeywords;
+}
+
+/**
+ * Score semantic similarity between topics of two pages.
+ * Detects thematic jumps (pages about completely different topics).
+ *
+ * @param {Set<string>} topicsA
+ * @param {Set<string>} topicsB
+ * @returns {number}  // 0.0–1.0, high = similar topics
+ */
+function _scoreTopicSimilarity(topicsA, topicsB) {
+  if (topicsA.size === 0 || topicsB.size === 0) return 0.5;
+
+  let matches = 0;
+  for (const topic of topicsA) {
+    if (topicsB.has(topic)) matches++;
+  }
+
+  const unionSize = topicsA.size + topicsB.size - matches;
+  return matches / Math.max(1, unionSize); // Jaccard similarity
+}
+
+/**
+ * Enhanced preprocessing that includes topic detection.
+ *
+ * @param {string} text
+ * @returns {{
+ *   wordCount: number,
+ *   filteredTail: Set<string>,
+ *   filteredHead: Set<string>,
+ *   lastChar: string,
+ *   firstLine: string,
+ *   topics: Set<string>,         // ← NEW: topic keywords
+ * }}
+ */
+function _preprocessTextWithTopics(text) {
+  const base = _preprocessText(text);
+  return {
+    ...base,
+    topics: _extractTopics(text),
+  };
+}
+
+/**
+ * Enhanced continuity scoring with thematic context awareness.
+ * Reduces false positives on thematic jumps.
+ *
+ * @param {Object} a  // Preprocessed text A (with topics)
+ * @param {Object} b  // Preprocessed text B (with topics)
+ * @returns {number}  // 0.0–1.0
+ */
+function _scoreFastWithContext(a, b) {
+  if (a.wordCount < MIN_WORDS_REQUIRED || b.wordCount < MIN_WORDS_REQUIRED)
+    return 0;
+
+  let score = 0;
+
+  // Base signals (copy from _scoreFast)
+  if (![".", "?", "!", ":", ";"].includes(a.lastChar)) score += 0.35;
+
+  if (a.filteredTail.size > 0 && b.filteredHead.size > 0) {
+    let intersectionCount = 0;
+    const [smaller, larger] =
+      a.filteredTail.size <= b.filteredHead.size
+        ? [a.filteredTail, b.filteredHead]
+        : [b.filteredHead, a.filteredTail];
+
+    for (const w of smaller) {
+      if (larger.has(w)) intersectionCount++;
+    }
+
+    const unionSize =
+      a.filteredTail.size + b.filteredHead.size - intersectionCount;
+    const jaccard = intersectionCount / unionSize;
+    score += jaccard * 0.4;
+  }
+
+  const looksLikeHeading =
+    b.firstLine.length < 60 &&
+    (b.firstLine === b.firstLine.toUpperCase() ||
+      /^[A-Z][^a-z]{5,}/.test(b.firstLine));
+
+  if (!looksLikeHeading) score += 0.25;
+
+  // ── NEW: Topic similarity context adjustment ──────────────────────────
+  if (a.topics && b.topics) {
+    const topicSimilarity = _scoreTopicSimilarity(a.topics, b.topics);
+
+    // If topics are very different, penalize (thematic jump)
+    if (topicSimilarity < 0.15) {
+      score *= 0.7; // 30% penalty for stark topic change
+    } else if (topicSimilarity > 0.5) {
+      score = Math.min(1.0, score + 0.1); // Boost for topic consistency
+    }
+  }
+
+  return Math.min(1.0, Math.max(0, score));
+}
+
+module.exports = {
+  buildContinuityMatrix,
+  scoreContinuity,
+  sortByTextContinuity,
+  _extractTopics,
+  _scoreTopicSimilarity,
+  _preprocessTextWithTopics,
+  _scoreFastWithContext,
+};

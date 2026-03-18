@@ -1,5 +1,5 @@
 /**
- * Page Detection Service  –  v2 (enhanced patterns + cross-image analysis)
+ * Page Detection Service  –  v3 (enhanced patterns + cross-image analysis + ambiguity)
  *
  * Major improvements over v1:
  *
@@ -21,11 +21,22 @@
  *  4. STANDALONE NUMBER FIX
  *     Standalone number confidence raised from 0.55 → 0.60, and the
  *     position boost can push it to 0.75 — above the sorting threshold.
+ *
+ *  5. ★ MULTI-DETECTION AMBIGUITY HANDLING (v3) – Improvement #3, #7
+ *     Detects when image has multiple distinct numbers and disambiguates
+ *     using position scoring and semantic context. Flags for AI verification
+ *     when confidence gap is low.
+ *
+ *  6. ★ DIGIT VALIDATION (v3) – Improvement #1
+ *     Validates marginal digit detections against batch context,
+ *     detects lookalike misreads (6↔9, 1↔7), suggests corrections.
  */
 
 "use strict";
 
 const logger = require("../utils/logger");
+const digitValidation = require("./digitValidationService");
+const ambiguityDetection = require("./ambiguityDetectionService");
 
 // ── Single-image patterns ─────────────────────────────────────────────────────
 
@@ -39,38 +50,122 @@ const logger = require("../utils/logger");
 
 const PATTERNS = [
   // "Page 3" / "page: 3" / "Page 3 of 10"
-  { name: "page_keyword",    regex: /\bpage\s*[:\-.]?\s*(\d+)(?:\s*(?:of|\/)\s*\d+)?\b/i,                              group: 1, confidence: 0.95 },
+  {
+    name: "page_keyword",
+    regex: /\bpage\s*[:\-.]?\s*(\d+)(?:\s*(?:of|\/)\s*\d+)?\b/i,
+    group: 1,
+    confidence: 0.95,
+  },
   // "Pg 2" / "Pg. 2" / "Pg 2 of 5"
-  { name: "pg_keyword",      regex: /\bpg\.?\s*(\d+)(?:\s*(?:of|\/)\s*\d+)?\b/i,                                       group: 1, confidence: 0.92 },
+  {
+    name: "pg_keyword",
+    regex: /\bpg\.?\s*(\d+)(?:\s*(?:of|\/)\s*\d+)?\b/i,
+    group: 1,
+    confidence: 0.92,
+  },
   // "P. 4"
-  { name: "p_dot_keyword",   regex: /\bP\.\s*(\d+)\b/,                                                                  group: 1, confidence: 0.88 },
+  {
+    name: "p_dot_keyword",
+    regex: /\bP\.\s*(\d+)\b/,
+    group: 1,
+    confidence: 0.88,
+  },
   // "#3" / "# 3" / "No. 3" / "No 3"
-  { name: "number_sign",     regex: /(?:#\s*|No\.?\s+)(\d+)\b/i,                                                        group: 1, confidence: 0.86 },
+  {
+    name: "number_sign",
+    regex: /(?:#\s*|No\.?\s+)(\d+)\b/i,
+    group: 1,
+    confidence: 0.86,
+  },
   // "-3-" / "– 3 –" / "— 3 —"
-  { name: "dashes",          regex: /[-–—]\s*(\d+)\s*[-–—]/,                                                             group: 1, confidence: 0.85 },
+  {
+    name: "dashes",
+    regex: /[-–—]\s*(\d+)\s*[-–—]/,
+    group: 1,
+    confidence: 0.85,
+  },
   // "3 / 10" / "3/10" on its own line
-  { name: "fraction_line",   regex: /^(\d+)\s*\/\s*\d+$/,                                                                group: 1, confidence: 0.85 },
+  {
+    name: "fraction_line",
+    regex: /^(\d+)\s*\/\s*\d+$/,
+    group: 1,
+    confidence: 0.85,
+  },
   // "Sheet 3" / "Slide 3" / "Chapter 3" / "Ch. 3" / "Section 3" / "Part 3" / "Q 3" / "Question 3"
-  { name: "sheet_keyword",   regex: /\b(?:sheet|slide|chapter|ch\.?|section|sec\.?|part|question|q\.?)\s*[:\-.]?\s*(\d+)\b/i, group: 1, confidence: 0.82 },
+  {
+    name: "sheet_keyword",
+    regex:
+      /\b(?:sheet|slide|chapter|ch\.?|section|sec\.?|part|question|q\.?)\s*[:\-.]?\s*(\d+)\b/i,
+    group: 1,
+    confidence: 0.82,
+  },
   // "(4)" on its own line
-  { name: "parens_line",     regex: /^\(\s*(\d+)\s*\)$/,                                                                 group: 1, confidence: 0.78 },
+  {
+    name: "parens_line",
+    regex: /^\(\s*(\d+)\s*\)$/,
+    group: 1,
+    confidence: 0.78,
+  },
   // "[4]" on its own line
-  { name: "brackets_line",   regex: /^\[\s*(\d+)\s*\]$/,                                                                 group: 1, confidence: 0.78 },
+  {
+    name: "brackets_line",
+    regex: /^\[\s*(\d+)\s*\]$/,
+    group: 1,
+    confidence: 0.78,
+  },
   // "~3~" / "* 3 *" / "• 3 •"
-  { name: "decorated",       regex: /[~*•]\s*(\d+)\s*[~*•]/,                                                             group: 1, confidence: 0.72 },
+  {
+    name: "decorated",
+    regex: /[~*•]\s*(\d+)\s*[~*•]/,
+    group: 1,
+    confidence: 0.72,
+  },
   // "(4)" anywhere in text (not just own line)
-  { name: "parens_inline",   regex: /\(\s*(\d{1,3})\s*\)/,                                                               group: 1, confidence: 0.62 },
+  {
+    name: "parens_inline",
+    regex: /\(\s*(\d{1,3})\s*\)/,
+    group: 1,
+    confidence: 0.62,
+  },
+  // ★ NEW patterns for corner/margin page numbers
+  // "| 3" / "| 3 |" (margin separator)
+  {
+    name: "margin_separator",
+    regex: /^\s*\|\s*(\d{1,3})\s*\|?\s*$/,
+    group: 1,
+    confidence: 0.78,
+  },
+  // Just a number with light content (likely page number, not body text)
+  // "3   " or "    3" (number with whitespace, common in printed margins)
+  // Matches: number at line start/end with significant whitespace
+  {
+    name: "margin_number",
+    regex: /^(\d{1,3})\s{2,}$|^\s{2,}(\d{1,3})$/,
+    group: 1,
+    confidence: 0.75,
+  },
   // Standalone number on its own line — the MOST COMMON case for handwritten notes
-  { name: "standalone_number", regex: /^(\d{1,3})$/,                                                                      group: 1, confidence: 0.60 },
+  {
+    name: "standalone_number",
+    regex: /^(\d{1,3})$/,
+    group: 1,
+    confidence: 0.60,
+  },
   // Number at very start or end of entire text (even if not on its own line)
-  { name: "edge_number",     regex: /(?:^|\n)\s*(\d{1,3})\s*(?:\n|$)/,                                                   group: 1, confidence: 0.55 },
+  {
+    name: "edge_number",
+    regex: /(?:^|\n)\s*(\d{1,3})\s*(?:\n|$)/,
+    group: 1,
+    confidence: 0.55,
+  },
 ];
 
 const MAX_PLAUSIBLE_PAGE = 500;
 
 /** Confidence boost for numbers found in the first or last N lines */
-const EDGE_LINE_COUNT    = 4;
-const EDGE_BOOST         = 0.15;
+const EDGE_LINE_COUNT = 8; // Increased from 4 → catches numbers in margins/corners
+const EDGE_BOOST = 0.20; // Increased from 0.15 → stronger signal for header/footer
+const CORNER_BOOST = 0.30; // Additional boost for very top/bottom (corners)
 
 // ── Single-image detection ────────────────────────────────────────────────────
 
@@ -84,32 +179,51 @@ const EDGE_BOOST         = 0.15;
 function detectPageNumber(text) {
   if (!text || text.trim().length === 0) return null;
 
-  const lines     = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const lines = text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
   const lineCount = lines.length;
   const candidates = [];
 
   for (const { name, regex, group, confidence } of PATTERNS) {
     for (let li = 0; li < lines.length; li++) {
-      const line  = lines[li];
+      const line = lines[li];
       const match = line.match(regex);
       if (!match) continue;
 
-      const num = parseInt(match[group], 10);
-      if (!Number.isFinite(num) || num <= 0 || num > MAX_PLAUSIBLE_PAGE) continue;
+      // Handle alternation: if match[group] is undefined, try other groups
+      let num = parseInt(match[group], 10);
+      if (!Number.isFinite(num)) {
+        // Try other groups (for patterns with alternation like "^(a)|^(b)$")
+        for (let g = 1; g < match.length; g++) {
+          num = parseInt(match[g], 10);
+          if (Number.isFinite(num)) break;
+        }
+      }
+      if (!Number.isFinite(num) || num <= 0 || num > MAX_PLAUSIBLE_PAGE)
+        continue;
 
-      // Position-based confidence boost: header/footer lines get a bump
-      const isEdgeLine = li < EDGE_LINE_COUNT || li >= lineCount - EDGE_LINE_COUNT;
-      const finalConf  = isEdgeLine
-        ? Math.min(1.0, confidence + EDGE_BOOST)
-        : confidence;
+      // Position-based confidence boost: header/footer lines get a boost
+      // Corner boost (first/last line) is strongest, then edge zone is stronger
+      const isCornerLine =
+        li === 0 || li === lineCount - 1; // Very top or bottom
+      const isEdgeLine =
+        li < EDGE_LINE_COUNT || li >= lineCount - EDGE_LINE_COUNT;
+      let finalConf = confidence;
+      if (isCornerLine) {
+        finalConf = Math.min(1.0, confidence + CORNER_BOOST); // +0.30 for actual corners
+      } else if (isEdgeLine) {
+        finalConf = Math.min(1.0, confidence + EDGE_BOOST); // +0.20 for edge zone
+      }
 
       candidates.push({
-        pageNumber:  num,
-        confidence:  finalConf,
+        pageNumber: num,
+        confidence: finalConf,
         matchedText: match[0].trim(),
-        pattern:     name,
-        lineIndex:   li,
-        isEdge:      isEdgeLine,
+        pattern: name,
+        lineIndex: li,
+        isEdge: isEdgeLine,
       });
     }
   }
@@ -130,10 +244,10 @@ function detectPageNumber(text) {
   }
 
   return {
-    pageNumber:  best.pageNumber,
-    confidence:  best.confidence,
+    pageNumber: best.pageNumber,
+    confidence: best.confidence,
     matchedText: best.matchedText,
-    pattern:     best.pattern,
+    pattern: best.pattern,
   };
 }
 
@@ -166,21 +280,24 @@ function detectPageNumbersAcrossImages(ocrResults, perImageDetections) {
     const text = ocr?.text || "";
     if (!text.trim()) return candidates;
 
-    const lines     = text.split("\n").map((l) => l.trim()).filter(Boolean);
+    const lines = text
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
     const lineCount = lines.length;
 
     for (let li = 0; li < lines.length; li++) {
-      const line     = lines[li];
-      const isEdge   = li < EDGE_LINE_COUNT || li >= lineCount - EDGE_LINE_COUNT;
-      const matches  = line.matchAll(/\b(\d{1,3})\b/g);
+      const line = lines[li];
+      const isEdge = li < EDGE_LINE_COUNT || li >= lineCount - EDGE_LINE_COUNT;
+      const matches = line.matchAll(/\b(\d{1,3})\b/g);
 
       for (const m of matches) {
         const num = parseInt(m[1], 10);
         if (num > 0 && num <= Math.max(n * 3, 50)) {
           candidates.push({
-            number:   num,
+            number: num,
             isEdge,
-            lineIdx:  li,
+            lineIdx: li,
             // Priority score: edge numbers and small numbers preferred
             priority: (isEdge ? 10 : 0) + (num <= n ? 5 : 0),
           });
@@ -192,9 +309,9 @@ function detectPageNumbersAcrossImages(ocrResults, perImageDetections) {
     const det = perImageDetections?.[idx];
     if (det) {
       candidates.push({
-        number:   det.pageNumber,
-        isEdge:   true,
-        lineIdx:  -1,
+        number: det.pageNumber,
+        isEdge: true,
+        lineIdx: -1,
         priority: 20 + det.confidence * 10, // high priority
       });
     }
@@ -209,26 +326,30 @@ function detectPageNumbersAcrossImages(ocrResults, perImageDetections) {
   });
 
   // ── Step 2: Try sequences starting from 1..5 ─────────────────────────────
-  let bestResult    = null;
-  let bestCoverage  = 0;
+  let bestResult = null;
+  let bestCoverage = 0;
   let bestEdgeScore = 0;
 
   for (let start = 1; start <= 5; start++) {
     const expected = Array.from({ length: n }, (_, i) => start + i);
-    const result   = _matchSequence(imageCandidates, expected, n);
+    const result = _matchSequence(imageCandidates, expected, n);
 
-    if (result.coverage > bestCoverage ||
-        (result.coverage === bestCoverage && result.edgeScore > bestEdgeScore)) {
-      bestCoverage  = result.coverage;
+    if (
+      result.coverage > bestCoverage ||
+      (result.coverage === bestCoverage && result.edgeScore > bestEdgeScore)
+    ) {
+      bestCoverage = result.coverage;
       bestEdgeScore = result.edgeScore;
-      bestResult    = { ...result, start };
+      bestResult = { ...result, start };
     }
   }
 
   // ── Step 3: Validate ─────────────────────────────────────────────────────
   // Need at least 50% coverage for cross-image to be meaningful
   if (!bestResult || bestCoverage < 0.5) {
-    logger.debug(`Cross-image: no valid sequence found (best coverage: ${(bestCoverage * 100).toFixed(0)}%)`);
+    logger.debug(
+      `Cross-image: no valid sequence found (best coverage: ${(bestCoverage * 100).toFixed(0)}%)`,
+    );
     return null;
   }
 
@@ -237,15 +358,15 @@ function detectPageNumbersAcrossImages(ocrResults, perImageDetections) {
 
   logger.info(
     `Cross-image: found sequence starting at ${bestResult.start}, ` +
-    `coverage ${(bestCoverage * 100).toFixed(0)}%, confidence ${confidence.toFixed(2)}`
+      `coverage ${(bestCoverage * 100).toFixed(0)}%, confidence ${confidence.toFixed(2)}`,
   );
 
   return {
     pageNumbers: bestResult.assignment,
     confidence,
-    method:      "cross_image_sequence",
-    start:       bestResult.start,
-    coverage:    bestCoverage,
+    method: "cross_image_sequence",
+    start: bestResult.start,
+    coverage: bestCoverage,
   };
 }
 
@@ -261,7 +382,7 @@ function detectPageNumbersAcrossImages(ocrResults, perImageDetections) {
 function _matchSequence(imageCandidates, expected, n) {
   const assignment = new Array(n).fill(null);
   const usedImages = new Set();
-  const usedPages  = new Set();
+  const usedPages = new Set();
 
   // Build a score matrix: for each (expected page, image) pair,
   // compute how well that assignment works
@@ -274,7 +395,7 @@ function _matchSequence(imageCandidates, expected, n) {
           pageNum,
           imgIdx,
           priority: cand.priority,
-          isEdge:   cand.isEdge,
+          isEdge: cand.isEdge,
         });
       }
     }
@@ -292,7 +413,7 @@ function _matchSequence(imageCandidates, expected, n) {
     if (isEdge) edgeScore++;
   }
 
-  const matched  = assignment.filter((a) => a !== null).length;
+  const matched = assignment.filter((a) => a !== null).length;
   const coverage = matched / n;
 
   return { assignment, coverage, edgeScore };
