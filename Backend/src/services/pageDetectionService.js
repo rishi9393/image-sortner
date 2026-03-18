@@ -149,7 +149,7 @@ const PATTERNS = [
     name: "standalone_number",
     regex: /^(\d{1,3})$/,
     group: 1,
-    confidence: 0.60,
+    confidence: 0.6,
   },
   // Number at very start or end of entire text (even if not on its own line)
   {
@@ -164,8 +164,8 @@ const MAX_PLAUSIBLE_PAGE = 500;
 
 /** Confidence boost for numbers found in the first or last N lines */
 const EDGE_LINE_COUNT = 8; // Increased from 4 → catches numbers in margins/corners
-const EDGE_BOOST = 0.20; // Increased from 0.15 → stronger signal for header/footer
-const CORNER_BOOST = 0.30; // Additional boost for very top/bottom (corners)
+const EDGE_BOOST = 0.2; // Increased from 0.15 → stronger signal for header/footer
+const CORNER_BOOST = 0.3; // Additional boost for very top/bottom (corners)
 
 // ── Single-image detection ────────────────────────────────────────────────────
 
@@ -206,8 +206,7 @@ function detectPageNumber(text) {
 
       // Position-based confidence boost: header/footer lines get a boost
       // Corner boost (first/last line) is strongest, then edge zone is stronger
-      const isCornerLine =
-        li === 0 || li === lineCount - 1; // Very top or bottom
+      const isCornerLine = li === 0 || li === lineCount - 1; // Very top or bottom
       const isEdgeLine =
         li < EDGE_LINE_COUNT || li >= lineCount - EDGE_LINE_COUNT;
       let finalConf = confidence;

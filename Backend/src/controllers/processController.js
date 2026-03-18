@@ -316,7 +316,7 @@ async function _runPipeline(session, onOcrProgress) {
   let regionOcrResults = files.map(() => ({ text: "", confidence: 0 }));
   const detectedCount = perImageDetections.filter(Boolean).length;
   const marginalDetections = perImageDetections.filter(
-    (d) => d && d.confidence < 0.70,
+    (d) => d && d.confidence < 0.7,
   ).length;
 
   // Run region OCR if:
@@ -326,7 +326,9 @@ async function _runPipeline(session, onOcrProgress) {
     detectedCount < n * 0.5 || marginalDetections > n * 0.2;
 
   if (shouldRunRegionOcr) {
-    logger.info(`[${sessionId}] Step 4 — ★ Enhanced region OCR (headers/footers)…`);
+    logger.info(
+      `[${sessionId}] Step 4 — ★ Enhanced region OCR (headers/footers)…`,
+    );
     try {
       regionOcrResults = await ocrService.extractPageRegionTextBatch(
         files.map((f) => f.filePath),
