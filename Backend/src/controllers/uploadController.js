@@ -9,6 +9,8 @@ const sessionService = require("../services/sessionService");
 const AppError = require("../utils/AppError");
 const logger = require("../utils/logger");
 
+// Note: Multer middleware should be configured in the route to handle file uploads,
+
 /**
  * POST /api/upload
  *
