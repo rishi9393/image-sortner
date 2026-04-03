@@ -1,18 +1,31 @@
 /**
- * Process Controller  –  v7 (Messaging Filenames + Enhanced AI Two-Pass + Quality Enhancements)
+ * Process Controller  –  v8 (Google Document AI Layout Parser Integration)
  *
  * Pipeline order:
- *  0. ★ Image Quality Analysis   ← NEW — warn about problematic batches
- *  0a. Filename sequence       (instant, zero I/O)
- *  0b. ★ Messaging app names   ← NEW — WhatsApp WA####, Telegram timestamps
- *  1. EXIF timestamps          (skip OCR if enough)
- *  2. ★ AI Vision (two-pass)   ← ENHANCED — chain-of-thought + verification
- *  3. Full OCR + page detection (fallback if no AI key)
- *  4. ★ Signal fusion          ← NEW — merge AI + OCR partial results
- *  5. Cross-image / text continuity / upload order
- *  6. ★ Accuracy Enhancements  ← NEW — digit validation, confidence aggregation
+ *  0.  Image Quality Analysis
+ *  0a. Filename sequence (instant, zero I/O)
+ *  0b. Messaging app names (WhatsApp, Telegram)
+ *  1.  EXIF timestamps
+ *  2.  ★ Document AI Layout Parser (primary) / Gemini Vision (fallback)
+ *  3.  Full OCR + page detection (if AI unavailable)
+ *  4.  Signal fusion
+ *  5.  Cross-image / text continuity / upload order
  *
- * When GEMINI_API_KEY is set, the AI call runs IN PARALLEL with OCR.
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * SORTING RULES (STRICT):
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *
+ *  1. Sort pages STRICTLY by detected page numbers in ASCENDING order
+ *  2. Do NOT attempt to fill missing page numbers
+ *     Example: If pages are 1,2,3,8,9 → keep this order as-is
+ *  3. Missing pages (like 4,5,6,7) should be IGNORED, not inferred
+ *  4. ONLY if a page has NO detectable page number:
+ *     - Use content-based analysis to place it approximately
+ *     - Insert it logically between numbered pages
+ *
+ * Priority Order:
+ *  1. Page number (highest priority)
+ *  2. Content-based ordering (only if page number missing)
  */
 
 "use strict";
@@ -22,7 +35,7 @@ const metadataService = require("../services/metadataService");
 const ocrService = require("../services/ocrService");
 const pageDetectionService = require("../services/pageDetectionService");
 const sortingService = require("../services/sortingService");
-const aiPageDetection = require("../services/aiPageDetectionService");
+const documentAIService = require("../services/documentAIService");
 const {
   detectMessagingAppOrder,
 } = require("../services/messagingFilenameService");
@@ -32,14 +45,18 @@ const logger = require("../utils/logger");
 
 const EXIF_QUORUM = 0.5;
 
-// Log whether AI is available on startup
-if (aiPageDetection.isAvailable()) {
+// Log AI service availability on startup
+if (documentAIService.isDocumentAIAvailable()) {
   logger.info(
-    "✓ AI page detection ENABLED (Gemini API key found) — two-pass mode",
+    "✓ Document AI Layout Parser ENABLED — primary page detection method"
+  );
+} else if (documentAIService.isGeminiFallbackAvailable()) {
+  logger.info(
+    "✓ Gemini Vision ENABLED — fallback page detection (Document AI not configured)"
   );
 } else {
   logger.info(
-    "⚠ AI page detection DISABLED (no GEMINI_API_KEY in .env) — falling back to OCR-only",
+    "⚠ AI page detection DISABLED — falling back to OCR-only mode"
   );
 }
 
@@ -60,14 +77,14 @@ async function processSession(req, res, next) {
       await _runPipeline(session, null);
 
     logger.info(
-      `[${sessionId}] Done in ${Date.now() - t0} ms. Method: ${sortMethod}`,
+      `[${sessionId}] Done in ${Date.now() - t0} ms. Method: ${sortMethod}`
     );
     return _saveAndRespond(
       res,
       sessionId,
       sortedImages,
       sortMethod,
-      sortMethodDescription,
+      sortMethodDescription
     );
   } catch (err) {
     sessionService.updateSession(sessionId, { status: "error" });
@@ -117,12 +134,13 @@ async function processSessionStream(req, res, next) {
     const files = session.files;
     send({ type: "start", total: files.length });
 
-    const onOcrProgress = (done, total, filename) => {
-      if (!clientGone) send({ type: "ocr_progress", done, total, filename });
+    const onProgress = (done, total, filename, stage) => {
+      if (!clientGone)
+        send({ type: "progress", done, total, filename, stage });
     };
 
     const { sortedImages, sortMethod, sortMethodDescription } =
-      await _runPipeline(session, onOcrProgress);
+      await _runPipeline(session, onProgress);
 
     if (clientGone) {
       sessionService.updateSession(sessionId, { status: "error" });
@@ -131,7 +149,7 @@ async function processSessionStream(req, res, next) {
 
     _persistResults(sessionId, sortedImages, sortMethod, sortMethodDescription);
     logger.info(
-      `[${sessionId}] Stream done in ${Date.now() - t0} ms. Method: ${sortMethod}`,
+      `[${sessionId}] Stream done in ${Date.now() - t0} ms. Method: ${sortMethod}`
     );
 
     send({
@@ -158,7 +176,7 @@ async function getProcessResults(req, res, next) {
       throw new AppError(
         `Session not processed yet (status: '${session.status}').`,
         400,
-        "NOT_PROCESSED",
+        "NOT_PROCESSED"
       );
     }
     return res.status(200).json(_buildResponse(session));
@@ -167,14 +185,14 @@ async function getProcessResults(req, res, next) {
   }
 }
 
-// ─── Core pipeline (v7 — Messaging + Enhanced AI + Fusion + Quality) ────────
+// ─── Core pipeline (v8 — Document AI Layout Parser) ──────────────────────────
 
-async function _runPipeline(session, onOcrProgress) {
+async function _runPipeline(session, onProgress) {
   const { sessionId, files } = session;
   const n = files.length;
 
   // ════════════════════════════════════════════════════════════════════════
-  // ★ NEW: IMAGE QUALITY ANALYSIS (Improvement #9)
+  // IMAGE QUALITY ANALYSIS
   // ════════════════════════════════════════════════════════════════════════
   try {
     const qualityAnalysis = await imageQualityService.analyzeBatch(files);
@@ -185,7 +203,6 @@ async function _runPipeline(session, onOcrProgress) {
       warnings.forEach((w) => logger.warn(`  - ${w}`));
       recommendations.forEach((r) => logger.info(`  → ${r}`));
 
-      // Store quality info in session for potential later reporting
       sessionService.updateSession(sessionId, {
         qualityAnalysis,
         notes:
@@ -194,7 +211,6 @@ async function _runPipeline(session, onOcrProgress) {
       });
     }
   } catch (err) {
-    // Quality analysis is non-blocking; errors don't halt processing
     logger.debug(`Quality analysis failed (non-critical): ${err.message}`);
   }
 
@@ -213,21 +229,19 @@ async function _runPipeline(session, onOcrProgress) {
   const fnResult = sortingService.sortImages(bareAnalyses, null);
   if (fnResult.sortMethod === "filename_order") {
     logger.info(`[${sessionId}] Fast path 0a (filename).`);
-    if (onOcrProgress)
-      files.forEach((f, i) => onOcrProgress(i + 1, n, f.originalName));
+    if (onProgress)
+      files.forEach((f, i) => onProgress(i + 1, n, f.originalName, "complete"));
     return fnResult;
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  // FAST PATH 0b — ★ Messaging app filename patterns (WhatsApp, Telegram, etc.)
+  // FAST PATH 0b — Messaging app filename patterns
   // ════════════════════════════════════════════════════════════════════════
   const msgResult = detectMessagingAppOrder(bareAnalyses);
   if (msgResult) {
-    logger.info(
-      `[${sessionId}] Fast path 0b (messaging app filename: ${msgResult.sortMethod}).`,
-    );
-    if (onOcrProgress)
-      files.forEach((f, i) => onOcrProgress(i + 1, n, f.originalName));
+    logger.info(`[${sessionId}] Fast path 0b (messaging app).`);
+    if (onProgress)
+      files.forEach((f, i) => onProgress(i + 1, n, f.originalName, "complete"));
     return msgResult;
   }
 
@@ -236,19 +250,19 @@ async function _runPipeline(session, onOcrProgress) {
   // ════════════════════════════════════════════════════════════════════════
   logger.info(`[${sessionId}] Step 1 — EXIF extraction…`);
   const allMetadata = await Promise.all(
-    files.map((f) => metadataService.extractMetadata(f.filePath)),
+    files.map((f) => metadataService.extractMetadata(f.filePath))
   );
 
   const withTs = allMetadata.filter(
-    (m) => m.hasMetadata && m.earliestDate instanceof Date,
+    (m) => m.hasMetadata && m.earliestDate instanceof Date
   );
   const uniqueTs = new Set(withTs.map((m) => m.earliestDate.getTime()));
   const exifEnough = withTs.length / n >= EXIF_QUORUM && uniqueTs.size > 1;
 
   if (exifEnough) {
     logger.info(`[${sessionId}] Fast path 1 (EXIF): ${withTs.length}/${n}`);
-    if (onOcrProgress)
-      files.forEach((f, i) => onOcrProgress(i + 1, n, f.originalName));
+    if (onProgress)
+      files.forEach((f, i) => onProgress(i + 1, n, f.originalName, "complete"));
     const analyses = files.map((file, i) => ({
       ...file,
       originalIndex: i,
@@ -261,97 +275,105 @@ async function _runPipeline(session, onOcrProgress) {
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  // MAIN PATH — ★ AI Vision (two-pass) + OCR run IN PARALLEL
+  // MAIN PATH — Document AI Layout Parser (or Gemini fallback)
   // ════════════════════════════════════════════════════════════════════════
 
-  // Start AI call (non-blocking) — will resolve to null if no API key
-  const aiPromise = aiPageDetection.isAvailable()
-    ? aiPageDetection.detectPageNumbers(files).catch((err) => {
-        logger.warn(`[${sessionId}] AI detection failed: ${err.message}`);
-        return null;
-      })
-    : Promise.resolve(null);
+  let aiResult = null;
 
-  // Start OCR in parallel
-  logger.info(
-    `[${sessionId}] Step 2 — Full-image OCR + AI Vision two-pass (parallel)…`,
-  );
-  const ocrResults = await ocrService.extractTextBatch(
-    files.map((f) => f.filePath),
-    onOcrProgress,
-  );
+  if (documentAIService.isAvailable()) {
+    logger.info(`[${sessionId}] Step 2 — Document AI page number extraction…`);
 
-  // Wait for AI result (should already be done or nearly done)
-  const aiResult = await aiPromise;
+    if (onProgress) {
+      onProgress(0, n, "", "ai_detection");
+    }
 
-  if (aiResult) {
-    logger.info(
-      `[${sessionId}] ★ AI Vision result: [${aiResult.pageNumbers.join(", ")}] ` +
-        `(confidence: ${aiResult.confidence.toFixed(2)}, verified: ${aiResult.verified})`,
-    );
-    if (aiResult.perImageConfidence) {
-      logger.debug(
-        `[${sessionId}] Per-image confidence: [${aiResult.perImageConfidence.join(", ")}]`,
-      );
+    try {
+      const docAIResult = await documentAIService.detectAndSortPages(files);
+
+      if (docAIResult && docAIResult.coverage >= 0.3) {
+        // Convert to legacy AI result format for compatibility
+        aiResult = {
+          pageNumbers: docAIResult.pages.map((p) => p.detectedPageNumber),
+          confidence: docAIResult.coverage,
+          perImageConfidence: docAIResult.pages.map((p) =>
+            p.confidence >= 0.8
+              ? "high"
+              : p.confidence >= 0.5
+              ? "medium"
+              : "low"
+          ),
+          model: docAIResult.method,
+          coverage: docAIResult.coverage,
+          verified: false,
+        };
+
+        logger.info(
+          `[${sessionId}] Document AI result: ` +
+            `[${aiResult.pageNumbers.map((p) => (p !== null ? p : "?")).join(", ")}] ` +
+            `(${(docAIResult.coverage * 100).toFixed(0)}% coverage)`
+        );
+      }
+    } catch (err) {
+      logger.warn(`[${sessionId}] Document AI failed: ${err.message}`);
     }
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  // Step 3 — Per-image page detection (OCR-based, as fallback / fusion input)
+  // Step 3 — Full OCR (in parallel with AI or as fallback)
+  // ════════════════════════════════════════════════════════════════════════
+  logger.info(`[${sessionId}] Step 3 — Full-image OCR…`);
+
+  const ocrResults = await ocrService.extractTextBatch(
+    files.map((f) => f.filePath),
+    onProgress
+      ? (done, total, filename) => onProgress(done, total, filename, "ocr")
+      : null
+  );
+
+  // ════════════════════════════════════════════════════════════════════════
+  // Step 4 — Per-image page detection (OCR-based fallback)
   // ════════════════════════════════════════════════════════════════════════
   const perImageDetections = ocrResults.map((ocr, i) => {
     const det = pageDetectionService.detectPageNumber(ocr.text);
     if (det) {
       logger.debug(
-        `[${sessionId}] OCR page detect — Image ${i + 1}: page ${det.pageNumber} (${det.pattern}, conf=${det.confidence.toFixed(2)})`,
+        `[${sessionId}] OCR page detect — Image ${i + 1}: page ${det.pageNumber} ` +
+          `(${det.pattern}, conf=${det.confidence.toFixed(2)})`
       );
     }
     return det;
   });
 
   // ════════════════════════════════════════════════════════════════════════
-  // Step 4 — ★ ENHANCED Region OCR for headers/footers
-  //   Run more aggressively: if ANY image has marginal or missing detection
+  // Step 5 — Region OCR for headers/footers (if needed)
   // ════════════════════════════════════════════════════════════════════════
   let regionOcrResults = files.map(() => ({ text: "", confidence: 0 }));
   const detectedCount = perImageDetections.filter(Boolean).length;
-  const marginalDetections = perImageDetections.filter(
-    (d) => d && d.confidence < 0.7,
-  ).length;
+  const aiDetectedCount = aiResult
+    ? aiResult.pageNumbers.filter((p) => p !== null).length
+    : 0;
 
-  // Run region OCR if:
-  //   1. Less than 50% images have page numbers detected, OR
-  //   2. Multiple images have marginal detection confidence
+  // Only run region OCR if both AI and regular OCR are failing
   const shouldRunRegionOcr =
-    detectedCount < n * 0.5 || marginalDetections > n * 0.2;
+    !aiResult && detectedCount < n * 0.5;
 
   if (shouldRunRegionOcr) {
-    logger.info(
-      `[${sessionId}] Step 4 — ★ Enhanced region OCR (headers/footers)…`,
-    );
+    logger.info(`[${sessionId}] Step 5 — Region OCR (headers/footers)…`);
     try {
       regionOcrResults = await ocrService.extractPageRegionTextBatch(
-        files.map((f) => f.filePath),
+        files.map((f) => f.filePath)
       );
       for (let i = 0; i < n; i++) {
         if (regionOcrResults[i]?.text) {
           const regionDet = pageDetectionService.detectPageNumber(
-            regionOcrResults[i].text,
+            regionOcrResults[i].text
           );
-          // Use region detection if:
-          //   - No current detection, OR
-          //   - Region detection has higher confidence
           if (
             regionDet &&
             (!perImageDetections[i] ||
               regionDet.confidence > perImageDetections[i].confidence)
           ) {
             perImageDetections[i] = regionDet;
-            if (regionDet.confidence >= 0.7) {
-              logger.debug(
-                `[${sessionId}] Region OCR found page ${regionDet.pageNumber} for image ${i + 1}`,
-              );
-            }
           }
         }
       }
@@ -361,9 +383,12 @@ async function _runPipeline(session, onOcrProgress) {
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  // Step 5 — Build analyses and sort
-  //   AI result passed as top-priority signal.
-  //   Sorting service handles: AI → OCR → Fusion → Cross-image → etc.
+  // Step 6 — Build analyses and sort
+  //
+  // STRICT SORTING RULES:
+  //  1. Sort by page numbers in ascending order
+  //  2. Do NOT fill missing page numbers (1,2,3,8,9 stays as-is)
+  //  3. Pages without numbers are inserted by content analysis
   // ════════════════════════════════════════════════════════════════════════
   const analyses = files.map((file, i) => ({
     ...file,
@@ -387,7 +412,7 @@ function _guardSession(sessionId) {
     throw new AppError(
       "Already processing. Please wait.",
       409,
-      "ALREADY_PROCESSING",
+      "ALREADY_PROCESSING"
     );
   }
   return session;
@@ -397,7 +422,7 @@ function _persistResults(
   sessionId,
   sortedImages,
   sortMethod,
-  sortMethodDescription,
+  sortMethodDescription
 ) {
   const results = sortedImages.map((img, idx) => ({
     ...img,
@@ -417,7 +442,7 @@ function _saveAndRespond(
   sessionId,
   sortedImages,
   sortMethod,
-  sortMethodDescription,
+  sortMethodDescription
 ) {
   _persistResults(sessionId, sortedImages, sortMethod, sortMethodDescription);
   return res
@@ -439,6 +464,8 @@ function _buildResponse(session) {
         storedFilename: img.storedFilename,
         url: img.url,
         size: img.size,
+        // ★ Include detected page number (or null if missing)
+        detectedPageNumber: img.detectedPageNumber ?? null,
         signals: {
           pageNumber: img.pageDetection
             ? {
@@ -446,6 +473,13 @@ function _buildResponse(session) {
                 confidence: img.pageDetection.confidence,
                 matchedText: img.pageDetection.matchedText,
                 pattern: img.pageDetection.pattern,
+              }
+            : img.detectedPageNumber
+            ? {
+                value: img.detectedPageNumber,
+                confidence: img.pageNumberConfidence === "high" ? 0.95 : 0.75,
+                matchedText: String(img.detectedPageNumber),
+                pattern: "ai_detected",
               }
             : null,
           timestamp:
